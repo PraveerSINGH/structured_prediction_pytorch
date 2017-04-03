@@ -1,10 +1,3 @@
-# -*- coding: utf-8 -*-
-"""
-Created on Fri Mar 17 18:33:47 2017
-
-@author: spyros
-"""
-
 batch_size   = 24
 crop_width   = 704
 crop_height  = 384
@@ -39,25 +32,30 @@ opt['data_norm_params']  = data_norm_params
 opt['max_num_epochs'] = 50
 
 # Parameters of the algorithm
-net_def_file = 'models/modelSegResNet50FCN.py'
-net_pretrained = None
-net_options = {'num_out_channels':20, 'freeze_batch_norm':True}
-net_optim_params = {'optim_type': 'adam', 'lr': 0.0001, 'beta': (0.9, 0.999), 'LUT_lr':[(10, 0.0001), (25, 0.00003), (40, 0.00001), (55, 0.000003), (60, 0.000001)]}
 
 networks = {}
-networks['net'] = {'def_file': net_def_file, 
-                   'pretrained': net_pretrained,
-                   'opt': net_options, 
-                   'optim_params': net_optim_params}         
+networks['net_init'] = {'def_file':   'models/modelSegResNet50FCN.py', 
+                        'pretrained': './experiments/segResNet50FCN/net_net_epoch50',
+                        'opt': {'num_out_channels':20, 'freeze_batch_norm':True, 'single_out': True}, 
+                        'optim_params': None}  
+                        
+net_optim_params = {'optim_type': 'adam', 'lr': 0.0001, 'beta': (0.9, 0.999), 'LUT_lr':[(10, 0.0001), (25, 0.00003), (40, 0.00001), (55, 0.000003), (60, 0.000001)]}
+networks['net_iter'] = {'def_file':   'models/modelSegRefine.py', 
+                        'pretrained': None,
+                        'opt': {'num_out_channels':20, 'freeze_batch_norm':True, 'single_out': True}, 
+                        'optim_params': net_optim_params}                          
 opt['networks'] = networks
 
-criterions = {}
-criterions['net'] = {'ctype':'CrossEntropyLoss', 'opt':None}
+criterions             = {}
+criterions['net_iter'] = {'ctype':'CrossEntropyLoss', 'opt':None}
+criterions['net_init'] = {'ctype':'CrossEntropyLoss', 'opt':None}
+
 
 opt['criterions'] = criterions
 opt['batch_split_size'] = 4
 opt['num_cats'] = 19
 opt['balance_class_weights'] = True
-opt['iterative'] = False
-opt['use_error_auxloss'] = False
-opt['error_auxloss_balance_weights'] = False
+opt['iterative'] = True
+
+#opt['use_error_auxloss'] = False
+#opt['error_auxloss_balance_weights'] = False

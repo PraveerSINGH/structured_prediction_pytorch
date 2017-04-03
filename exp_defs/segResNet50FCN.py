@@ -41,7 +41,7 @@ opt['max_num_epochs'] = 50
 # Parameters of the algorithm
 net_def_file = 'models/modelSegResNet50FCN.py'
 net_pretrained = None
-net_options = {'num_out_channels':20, 'freeze_batch_norm':True}
+net_options = {'num_out_channels':20, 'freeze_batch_norm':True, 'single_out': True}
 net_optim_params = {'optim_type': 'adam', 'lr': 0.0001, 'beta': (0.9, 0.999), 'LUT_lr':[(10, 0.0001), (25, 0.00003), (40, 0.00001), (55, 0.000003), (60, 0.000001)]}
 
 networks = {}
