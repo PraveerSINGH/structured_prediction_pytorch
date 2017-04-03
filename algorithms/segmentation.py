@@ -140,7 +140,7 @@ class segmentation(algorithm):
                 optimizer = self.optimizers['net']
                 optimizer.zero_grad()
 
-            losses = algorithm.DAverageMeter()
+            losses = utils.DAverageMeter()
             # Process each chunk
             for input_chunk, target_chunk in zip(input_chunks, target_chunks):
                 var_input  = torch.autograd.Variable(input_chunk, volatile=(not do_train))

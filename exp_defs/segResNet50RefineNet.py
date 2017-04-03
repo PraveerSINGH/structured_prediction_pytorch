@@ -19,7 +19,7 @@ data_train_opt['split']        = 'train' # e.g. 'train' or 'trainval'
 data_train_opt['batch_size']   = batch_size
 data_train_opt['crop_width']   = crop_width
 data_train_opt['crop_height']  = crop_height
-data_train_opt['epoch_size']   = 500 * 24
+data_train_opt['epoch_size']   = 500 * batch_size
 data_train_opt['max_scale']    = 1.5 * scale
 data_train_opt['min_scale']    = 0.8 * scale
 
