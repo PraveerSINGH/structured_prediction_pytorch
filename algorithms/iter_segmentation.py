@@ -38,8 +38,7 @@ def reshape_preds(preds):
 
     return preds_trans    
         
-
-class iterSegmentation(algorithm):
+class iter_segmentation(algorithm):
         def __init__(self, opt):
             algorithm.__init__(self, opt)
                   
@@ -147,33 +146,36 @@ class iterSegmentation(algorithm):
             network_iter   = self.networks['net_iter']
             network_init   = self.networks['net_init']
 
-            criterion_iter = self.criterions['net_iter']
-            criterion_init = self.criterions['net_init']
+            criterion_iter = self.criterions['net']
+            criterion_init = self.criterions['net']
             
             optimizer = None
             if do_train: # get the optimizer and zero the gradients
-                optimizer = self.optimizers['net']
+                optimizer = self.optimizers['net_iter']
                 optimizer.zero_grad()
 
             losses = utils.DAverageMeter()
             # Process each chunk
             for input_chunks, target_chunk in zip(input_chunks, target_chunks):
                 # ground truth Y variable                
-                var_Ygt   = torch.autograd.Variable(target_chunk, volatile=True)
+                var_Ygt   = torch.autograd.Variable(target_chunk.squeeze(), volatile=(not do_train))
                 
                 # forward through the initialization network
                 var_X           = torch.autograd.Variable(input_chunks, volatile=True)
                 var_Yinit       = network_init(var_X)
                 var_Yinit_trans = reshape_preds(var_Yinit)
+                #import pdb
+                #pdb.set_trace()
                 var_loss_init   = criterion_init(var_Yinit_trans, var_Ygt)
                 
                 # forward through the joint input-output network
                 # possible this could be implemented for several
                 # iterations
-                var_X          = torch.autograd.Variable(input_chunks,      volatile=(not do_train))
+                var_X          = torch.autograd.Variable(input_chunks,   volatile=(not do_train))
                 var_Yt         = torch.autograd.Variable(var_Yinit.data, volatile=(not do_train))
                 var_Ytpp       = network_iter(var_X, var_Yt) 
                 var_Ytpp_trans = reshape_preds(var_Ytpp)
+
                 var_loss_tpp   = criterion_iter(var_Ytpp_trans, var_Ygt)
                 
                 if do_train: 

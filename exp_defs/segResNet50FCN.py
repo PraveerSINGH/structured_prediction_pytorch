@@ -58,6 +58,3 @@ opt['criterions'] = criterions
 opt['batch_split_size'] = 4
 opt['num_cats'] = 19
 opt['balance_class_weights'] = True
-opt['iterative'] = False
-opt['use_error_auxloss'] = False
-opt['error_auxloss_balance_weights'] = False

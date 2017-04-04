@@ -48,7 +48,13 @@ data_loader_train = alg.segDataLoader(dataset=dataset_train, opt=data_train_opt,
 # This is not right place for this code.
 opt['criterions']['net']['opt'] = {'weight': dataset_train.get_class_weights(balance=opt['balance_class_weights'])}  
 
-algorithm = alg.segmentation(opt)
+if not ('algorithm_type' in opt):
+    opt['algorithm_type'] = 'segmentation'
+    # Default: algorithm = alg.segmentation(opt)
+
+print(opt['algorithm_type'])
+#algorithm = alg.iter_segmentation(opt)
+algorithm = getattr(alg, opt['algorithm_type'])(opt) 
 
 if args_opt.cuda: # enable cuda
     algorithm.load_to_gpu()

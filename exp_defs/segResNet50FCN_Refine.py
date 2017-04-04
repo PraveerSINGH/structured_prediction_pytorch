@@ -19,7 +19,7 @@ data_train_opt['min_scale']    = 0.8 * scale
 data_test_opt = {} 
 data_test_opt['dataset']     = 'cityscape'
 data_test_opt['split']       = 'val' # e.g. 'val' or 'test'
-data_test_opt['epoch_size']  = 500
+data_test_opt['epoch_size']  = 100
 data_test_opt['scale']       = scale
 
 opt['data_train_opt'] = data_train_opt
@@ -29,7 +29,7 @@ data_norm_params = {}
 data_norm_params['mean_RGB'] = [0.485, 0.456, 0.406]
 data_norm_params['std_RGB'] = [0.229, 0.224, 0.225]
 opt['data_norm_params']  = data_norm_params
-opt['max_num_epochs'] = 50
+opt['max_num_epochs'] = 32
 
 # Parameters of the algorithm
 
@@ -39,23 +39,19 @@ networks['net_init'] = {'def_file':   'models/modelSegResNet50FCN.py',
                         'opt': {'num_out_channels':20, 'freeze_batch_norm':True, 'single_out': True}, 
                         'optim_params': None}  
                         
-net_optim_params = {'optim_type': 'adam', 'lr': 0.0001, 'beta': (0.9, 0.999), 'LUT_lr':[(10, 0.0001), (25, 0.00003), (40, 0.00001), (55, 0.000003), (60, 0.000001)]}
+net_optim_params = {'optim_type': 'adam', 'lr': 0.0001, 'beta': (0.9, 0.999), 'LUT_lr':[(12, 0.001), (18, 0.0003), (24, 0.0001), (28, 0.00003), (32, 0.00001)]}
 networks['net_iter'] = {'def_file':   'models/modelSegRefine.py', 
                         'pretrained': None,
-                        'opt': {'num_out_channels':20, 'freeze_batch_norm':True, 'single_out': True}, 
-                        'optim_params': net_optim_params}                          
+                        'opt': {'num_Ychannels':20,'num_Xchannels':3, 'numFeats':32, 'numFeatEncMax':512, 'numFeatDecMax':256, 'depth': 4}, 
+                        'optim_params': net_optim_params}    
+                        
 opt['networks'] = networks
 
 criterions             = {}
-criterions['net_iter'] = {'ctype':'CrossEntropyLoss', 'opt':None}
-criterions['net_init'] = {'ctype':'CrossEntropyLoss', 'opt':None}
+criterions['net'] = {'ctype':'CrossEntropyLoss', 'opt':None}
 
 
 opt['criterions'] = criterions
 opt['batch_split_size'] = 4
-opt['num_cats'] = 19
+opt['algorithm_type'] = 'iter_segmentation'
 opt['balance_class_weights'] = True
-opt['iterative'] = True
-
-#opt['use_error_auxloss'] = False
-#opt['error_auxloss_balance_weights'] = False
