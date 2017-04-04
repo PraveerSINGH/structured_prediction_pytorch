@@ -66,10 +66,11 @@ class iter_segmentation(algorithm):
         def train_step(self, batch):
             return self.process_batch(batch, do_train=True)
             
-        def getEvaluationResults(predictions_tpp, predictions_init, groundtruth):
+        def getEvaluationResults(self, predictions_tpp, predictions_init, groundtruth):
             predictions_tpp  = reshape_preds(predictions_tpp)
             predictions_init = reshape_preds(predictions_init)
             groundtruth      = reshape_preds(groundtruth)
+            groundtruth      = groundtruth.squeeze()
             
             predictions_tpp  = predictions_tpp.cpu().numpy()
             predictions_init = predictions_init.cpu().numpy()
@@ -82,6 +83,7 @@ class iter_segmentation(algorithm):
             
             # The first category (label -1) is for pixels with missing annotation
             valid            = groundtruth >= 0 
+            
             groundtruth      = groundtruth[valid]
             predictions_tpp  = predictions_tpp[valid,1:]
             predictions_init = predictions_init[valid,1:]
@@ -116,13 +118,13 @@ class iter_segmentation(algorithm):
             var_X     = torch.autograd.Variable(input, volatile=True)
             var_Yinit = network_init(var_X)
 
-            var_Yt    = var_Yinit[0]
+            var_Yt    = var_Yinit
             var_Ytpp  = network_iter(var_X, var_Yt) # Y_{t+1} = F(X, Y_{t})
             
-            var_Ytpp_preds  = resize_preds_as_targets(var_Ytpp[0], target)
-            var_Yinit_preds = resize_preds_as_targets(var_Yinit[0], target)
+            var_Ytpp_resized  = resize_preds_as_targets(var_Ytpp, target)
+            var_Yinit_resized = resize_preds_as_targets(var_Yinit, target)
 
-            results = self.getEvaluationResults(var_Ytpp_preds.data, var_Yinit_preds.data, target)
+            results = self.getEvaluationResults(var_Ytpp_resized.data, var_Yinit_resized.data, target)
             
             return results
         

@@ -50,10 +50,8 @@ opt['criterions']['net']['opt'] = {'weight': dataset_train.get_class_weights(bal
 
 if not ('algorithm_type' in opt):
     opt['algorithm_type'] = 'segmentation'
-    # Default: algorithm = alg.segmentation(opt)
 
 print(opt['algorithm_type'])
-#algorithm = alg.iter_segmentation(opt)
 algorithm = getattr(alg, opt['algorithm_type'])(opt) 
 
 if args_opt.cuda: # enable cuda

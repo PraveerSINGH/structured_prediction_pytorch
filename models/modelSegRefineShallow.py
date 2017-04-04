@@ -12,28 +12,19 @@ import torchvision.models
 import numpy as np
 
 def init_parameters(mult):
-    global counter; counter = 0
-    global count_params; count_params = 0
     def init_parameters_(m):
         classname = m.__class__.__name__
         if classname.find('Conv') != -1:
-            global counter; global count_params;
-	    counter = counter + 1
-	    #print('HELLO', counter)
-	    fin = mult * np.prod(m.kernel_size) * m.in_channels
+            fin = mult * np.prod(m.kernel_size) * m.in_channels
             std_val = np.sqrt(2.0/fin)
             m.weight.data.normal_(0.0, std_val)
-	    count_params += m.weight.numel()
             if m.bias is not None:
                 m.bias.data.fill_(0.0)
-		count_params += m.bias.numel()
-            #print(float(count_params)/(1024*1024))
+            
         elif classname.find('BatchNorm') != -1:
             m.weight.data.normal_(1.0, 0.02)
             m.bias.data.fill_(0)
-	    count_params += m.weight.data.numel()
-	    count_params += m.bias.data.numel()            
-	    #print(float(count_params)/(1024*1024))
+            
     return init_parameters_
         
 def freeze_batch_norm_fun(m):
@@ -133,12 +124,11 @@ class UNetBlock(nn.Module):
         
         self.numFeatEncOut = numFeatEncOut
         self.enc_block = nn.Sequential(
-            ResBlock(numFeatEncIn,  numFeatEncOut, stride=2,rtype='3x3'),
-            ResBlock(numFeatEncOut, numFeatEncOut, stride=1,rtype='3x3'),
+            ResBlock(numFeatEncIn,  numFeatEncOut, stride=2,rtype='3x1'),
         )
         
         if depth == 1:
-            self.feat_block   = ResBlock(numFeatEncOut, numFeatEncOut,rtype='3x3')
+            self.feat_block   = ResBlock(numFeatEncOut, numFeatEncOut,rtype='3x1')
             self.numFeatDecIn = numFeatEncOut
         else:
             self.feat_block   = UNetBlock(numFeatEncOut,  numFeatEncMax, numFeatDecMax, depth-1)
@@ -146,20 +136,20 @@ class UNetBlock(nn.Module):
         
         numFeatDecIn = self.numFeatDecIn
         self.dec_block = nn.Sequential(
-            ResBlock(numFeatDecIn,numFeatDecIn,rtype='3x3'),
+            ResBlock(numFeatDecIn,numFeatDecIn,rtype='3x1'),
             nn.UpsamplingNearest2d(scale_factor=2)
         )
         
         self.numFeatDecOut  = max(min(numFeatEncIn, numFeatDecIn),numFeatDecMax)
-        self.fus_conv_low   = conv3x3(numFeatEncIn, self.numFeatDecOut, stride=1)
-        self.fus_conv_hight = conv3x3(numFeatDecIn, self.numFeatDecOut, stride=1)
+        self.fus_conv_low   = conv1x1(numFeatEncIn, self.numFeatDecOut, stride=1)
+        self.fus_conv_hight = conv1x1(numFeatDecIn, self.numFeatDecOut, stride=1)
         
         print("Depth %d: numFeatEncIn=%d, numFeatEncMax=%d, numFeatDecMax=%d, numFeatEncOut=%d numFeatDecIn=%d numFeatDecOut=%d"
             % (depth, numFeatEncIn, numFeatEncMax, numFeatDecMax, self.numFeatEncOut, self.numFeatDecIn, self.numFeatDecOut))
         self.fus_dec_block = nn.Sequential(
             nn.BatchNorm2d(self.numFeatDecOut),
             nn.ReLU(inplace=True),
-            ResBlock(self.numFeatDecOut, self.numFeatDecOut, rtype='3x3', firstActiv=False),
+            ResBlock(self.numFeatDecOut, self.numFeatDecOut, rtype='3x1', firstActiv=False),
         )
         #self.fus_bn    = nn.BatchNorm2d(self.numFeatDecOut)
         #self.fus_relu  = nn.ReLU(inplace=True)
@@ -207,19 +197,17 @@ class _model(nn.Module):
         
         self.featXY_block = nn.Sequential(
             nn.MaxPool2d(3, stride=2, padding=1),
-            ResBlock(self.numFeats,   self.numFeats*2, stride=1, rtype='3x3'),
-            ResBlock(self.numFeats*2, self.numFeats*2, stride=1, rtype='3x3')
+            ResBlock(self.numFeats, self.numFeats*2, stride=1, rtype='3x1'),
         )
         self.featXY_block.apply(init_parameters(1.0))
 
         self.UNet_block = UNetBlock(self.numFeats*2, self.numFeatEncMax, self.numFeatDecMax, self.depth)
-        #print('***********************')
-	self.UNet_block.apply(init_parameters(1.0))
-        #print('***********************')
+        self.UNet_block.apply(init_parameters(1.0))
+       
         numUNetOutFeat = self.UNet_block.numFeatDecOut
         self.pred_block = nn.Sequential(           
-            ResBlock(numUNetOutFeat, numUNetOutFeat, rtype='3x3'),
-            ResBlock(numUNetOutFeat, numUNetOutFeat, rtype='3x3'),
+            ResBlock(numUNetOutFeat, numUNetOutFeat, rtype='3x1'),
+            ResBlock(numUNetOutFeat, numUNetOutFeat, rtype='3x1'),
             nn.BatchNorm2d(numUNetOutFeat),
             nn.ReLU(inplace=True),    
             nn.Conv2d(numUNetOutFeat, self.num_Ychannels, kernel_size=5, stride=1, padding=2),
@@ -251,7 +239,7 @@ class _model(nn.Module):
         
 def create_model(opt):
     return _model(opt)
-"""
+"""     
 opt = {}     
 opt['num_Ychannels'] = 20
 opt['num_Xchannels'] = 3
