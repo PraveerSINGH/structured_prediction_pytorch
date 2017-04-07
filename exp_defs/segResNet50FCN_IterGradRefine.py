@@ -1,5 +1,5 @@
 batch_size   = 24
-crop_width   = 704
+crop_width   = 640
 crop_height  = 384
 scale        = 0.5
 
@@ -19,8 +19,9 @@ data_train_opt['min_scale']    = 0.8 * scale
 data_test_opt = {} 
 data_test_opt['dataset']     = 'cityscape'
 data_test_opt['split']       = 'val' # e.g. 'val' or 'test'
-data_test_opt['epoch_size']  = 500
+data_test_opt['epoch_size']  = 50
 data_test_opt['scale']       = scale
+data_test_opt['target_scale'] = scale
 
 opt['data_train_opt'] = data_train_opt
 opt['data_test_opt']  = data_test_opt
@@ -40,18 +41,38 @@ networks['net_init'] = {'def_file':   'models/modelSegResNet50FCN.py',
                         'optim_params': None}  
                         
 net_optim_params = {'optim_type': 'adam', 'lr': 0.0001, 'beta': (0.9, 0.999), 'LUT_lr':[(12, 0.001), (18, 0.0003), (24, 0.0001), (28, 0.00003), (32, 0.00001)]}
-networks['net_iter'] = {'def_file':   'models/modelSegRefineShallow.py', 
+networks['net_iter'] = {'def_file':   'models/modelSegRefineRecShallow.py', 
                         'pretrained': None,
-                        'opt': {'num_Ychannels':20,'num_Xchannels':3, 'numFeats':64, 'numFeatEncMax':512, 'numFeatDecMax':256, 'depth': 4}, 
+                        'opt': {'num_Ychannels':20,'num_Xchannels':3, 'numFeats':64, 'numFeatEncMax':512, 'numFeatDecMax':256, 'depth': 2}, 
                         'optim_params': net_optim_params}    
-                        
+
+det_optim_params = {'optim_type': 'adam', 'lr': 0.0001, 'beta': (0.9, 0.999), 'LUT_lr':[(12, 0.001), (18, 0.0003), (24, 0.0001), (28, 0.00003), (32, 0.00001)]}
+networks['net_det'] = {'def_file':   'models/modelSegErrorDetector.py', 
+                        'pretrained': None,
+                        'opt': 
+                            {'num_Ychannels':20,'num_Xchannels':3, 'numFeats':32, 
+                            'stageFeatParams':[[64, 64],[128,128],[256,256],[256,256],[256,256]],
+                            'stagePredParams':[32, 32, 64, 64, 64],
+                            }, 
+                        'optim_params': det_optim_params} 
+                       
+
+                       
 opt['networks'] = networks
 
-criterions             = {}
-criterions['net'] = {'ctype':'CrossEntropyLoss', 'opt':None}
+criterions            = {}
+criterions['net']     = {'ctype':'CrossEntropyLoss2d', 'opt':None}
+criterions['det']     = {'ctype':'BCEWeightedLoss', 'opt':None}
+criterions['det_aux'] = {'ctype':'BCEDetAuxLoss', 'opt':None}
 
 
 opt['criterions'] = criterions
 opt['batch_split_size'] = 4
-opt['algorithm_type'] = 'iter_segmentation'
+opt['algorithm_type'] = 'iter_grad_segmentation'
 opt['balance_class_weights'] = True
+
+opt['det_lambda'] = 1
+opt['num_iters'] = 2
+opt['num_cats'] = 20
+
+opt['LUT_num_iters'] = [(-1, 1), (2, 2)]

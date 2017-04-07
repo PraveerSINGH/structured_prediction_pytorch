@@ -190,9 +190,10 @@ class segDataLoader():
         interp_img = cv2.INTER_LINEAR
         interp_target = cv2.INTER_NEAREST
         if self.is_eval_mode:
+            target_scale = opt['target_scale'] if ('target_scale' in opt) else 1.0
             self.transform_fun = tnt.transform.compose([
                 #utils.Scale(scale=opt['scale'], interp_img=interp_img, interp_target=interp_target),
-                utils.ScaleSep(scale_img=opt['scale'], scale_target=1.0, interp_img=interp_img, interp_target=interp_target),                
+                utils.ScaleSep(scale_img=opt['scale'], scale_target=target_scale, interp_img=interp_img, interp_target=interp_target),                
                 utils.ImgTargetTransform(img_transform=transform_img,target_transform=transform_target),
             ])  
             self.batch_size = 1

@@ -74,10 +74,9 @@ class _model(nn.Module):
 
         self.num_Ychannels = opt['num_Ychannels']
         self.num_Xchannels = opt['num_Xchannels']
-        self.numFeats      = 32 #opt['numFeats']
-        #self.numFeatsMax   = opt['numFeatsMax']
-        self.stageFeatParams = [[64, 64],[128,128],[256,256],[256,256]]
-        self.stagePredParams = [32, 32, 64, 64]
+        self.numFeats      = opt['numFeats'] # 32
+        self.stageFeatParams = opt['stageFeatParams'] # [[64, 64],[128,128],[256,256],[256,256]]
+        self.stagePredParams = opt['stagePredParams'] #[64, 64, 128, 128]
         
         assert(len(self.stageFeatParams) == len(self.stagePredParams))
         

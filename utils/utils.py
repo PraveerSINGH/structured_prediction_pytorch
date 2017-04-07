@@ -27,7 +27,7 @@ def getConfMatrixResults(matrix):
     meanAccuracy  = accuracies.sum() / (num_valid + epsilon)
     meanIoU       = IoUs.sum() / (num_valid + epsilon)
     
-    return {'totAccuracy': totAccuracy, 'meanAccuracy': meanAccuracy, 'meanIoU': meanIoU}
+    return {'totAccuracy': round(totAccuracy,4), 'meanAccuracy': round(meanAccuracy,4), 'meanIoU': round(meanIoU,4)}
 
 class AverageConfMeter(object):
     def __init__(self):
@@ -64,7 +64,31 @@ class AverageMeter(object):
         self.val = val
         self.sum += float(val * n)
         self.count += n
-        self.avg = self.sum / self.count
+        self.avg = round(self.sum / self.count,4)
+
+class LAverageMeter(object):
+    """Computes and stores the average and current value"""
+    def __init__(self):
+        self.reset()
+
+    def reset(self):
+        self.val = []
+        self.avg = []
+        self.sum = []
+        self.count = 0
+
+    def update(self, val):
+        self.val = val
+        self.count += 1
+        if len(self.sum) == 0:
+            assert(self.count == 1)
+            self.sum = [v for v in val]
+            self.avg = [round(v,4) for v in val]
+        else:
+            assert(len(self.sum) == len(val))
+            for i, v in enumerate(val):
+                self.sum[i] += v
+                self.avg[i] = round(self.sum[i] / self.count,4)
 
 class DAverageMeter(object):
     def __init__(self):
@@ -88,6 +112,10 @@ class DAverageMeter(object):
                 if not (key in self.values):
                     self.values[key] = DAverageMeter()
                 self.values[key].update(val)
+            elif isinstance(val, list):
+                if not (key in self.values):
+                    self.values[key] = LAverageMeter()
+                self.values[key].update(val)                
                 
     def average(self):
         average = {}

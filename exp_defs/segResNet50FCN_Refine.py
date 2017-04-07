@@ -19,7 +19,7 @@ data_train_opt['min_scale']    = 0.8 * scale
 data_test_opt = {} 
 data_test_opt['dataset']     = 'cityscape'
 data_test_opt['split']       = 'val' # e.g. 'val' or 'test'
-data_test_opt['epoch_size']  = 100
+data_test_opt['epoch_size']  = 5
 data_test_opt['scale']       = scale
 
 opt['data_train_opt'] = data_train_opt
@@ -27,7 +27,7 @@ opt['data_test_opt']  = data_test_opt
 
 data_norm_params = {}
 data_norm_params['mean_RGB'] = [0.485, 0.456, 0.406]
-data_norm_params['std_RGB'] = [0.229, 0.224, 0.225]
+data_norm_params['std_RGB']  = [0.229, 0.224, 0.225]
 opt['data_norm_params']  = data_norm_params
 opt['max_num_epochs'] = 32
 
