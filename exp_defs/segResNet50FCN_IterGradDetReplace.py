@@ -41,7 +41,7 @@ networks['net_init'] = {'def_file':   'models/modelSegResNet50FCN.py',
                         'optim_params': None}  
                         
 net_optim_params = {'optim_type': 'adam', 'lr': 0.0001, 'beta': (0.9, 0.999), 'LUT_lr':[(12, 0.001), (18, 0.0003), (24, 0.0001), (28, 0.00003), (32, 0.00001)]}
-networks['net_iter'] = {'def_file':   'models/modelSegRefineRecShallow.py', 
+networks['net_iter'] = {'def_file':   'models/modelSegDetReplaceShallow.py', 
                         'pretrained': None,
                         'opt': {'num_Ychannels':20,'num_Xchannels':3, 'numFeats':64, 'numFeatEncMax':256, 'numFeatDecMax':256, 'depth': 4}, 
                         'optim_params': net_optim_params}    

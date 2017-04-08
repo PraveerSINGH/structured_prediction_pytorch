@@ -185,16 +185,18 @@ class algorithm():
     def load_network(self, net_key, epoch):
         assert(net_key in self.networks)
         filename = self._get_net_checkpoint_filename(net_key, epoch)
-        assert(os.path.isfile(filename))
-        checkpoint = torch.load(filename)
-        self.networks[net_key].load_state_dict(checkpoint['network'])        
+        #assert(os.path.isfile(filename))
+        if os.path.isfile(filename):
+            checkpoint = torch.load(filename)
+            self.networks[net_key].load_state_dict(checkpoint['network'])        
 
     def load_optimizer(self, net_key, epoch):
         assert(net_key in self.optimizers)
         filename = self._get_optim_checkpoint_filename(net_key, epoch)
-        assert(os.path.isfile(filename))
-        checkpoint = torch.load(filename)
-        self.optimizers[net_key].load_state_dict(checkpoint['optimizer'])
+        #assert(os.path.isfile(filename))
+        if os.path.isfile(filename):
+            checkpoint = torch.load(filename)
+            self.optimizers[net_key].load_state_dict(checkpoint['optimizer'])
             
     def _get_net_checkpoint_filename(self, net_key, epoch):
         return os.path.join(self.exp_dir, net_key+'_net_epoch'+str(epoch))
