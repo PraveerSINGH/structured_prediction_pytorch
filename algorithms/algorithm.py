@@ -33,6 +33,10 @@ class algorithm():
         if (not os.path.isdir(self.exp_dir)): 
             os.makedirs(self.exp_dir)
             
+        self.vis_dir = os.path.join(directory_path,'visuals')
+        if (not os.path.isdir(self.vis_dir)): 
+            os.makedirs(self.vis_dir)        
+            
     def set_log_file_handler(self):
         self.logger = logging.getLogger(__name__)
         
@@ -205,7 +209,10 @@ class algorithm():
         return os.path.join(self.exp_dir, net_key+'_optim_epoch'+str(epoch))
         
     def run_train_epoch(self, data_loader, epoch):
-        self.logger.info('Training')
+        self.logger.info('Training: %s' % os.path.basename(self.exp_dir))
+        
+        self.dataset_train = data_loader.dataset
+        
         for key, network in self.networks.items():
             if self.optimizers[key] == None: network.eval()
             else: network.train()
@@ -226,8 +233,9 @@ class algorithm():
         pass
     
     def evaluate(self, data_loader):
-        self.logger.info('Evaluating')
-
+        self.logger.info('Evaluating: %s' % os.path.basename(self.exp_dir))
+        self.dataset_eval = data_loader.dataset
+        
         for key, network in self.networks.items():
             network.eval()
             

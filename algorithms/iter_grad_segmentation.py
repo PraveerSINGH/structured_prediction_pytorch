@@ -18,6 +18,10 @@ import torchvision
 import cv2
 import utils
 
+import os
+from PIL import Image
+import cv2
+
 from . import algorithm
 
 
@@ -130,7 +134,7 @@ class iter_grad_segmentation(algorithm):
                 return getattr(nn, ctype)(copt)   
 
         def set_tensors(self, batch):
-            input, target = batch
+            input, target, sample_idx = batch
             self.tensors['input'].resize_(input.size()).copy_(input)
             self.tensors['target'].resize_(target.size()).copy_(target)
             
@@ -141,34 +145,27 @@ class iter_grad_segmentation(algorithm):
                 key = 'Yest_t'+str(t)
                 self.tensors[key].resize_(B,num_cats,H,W)
                 
-            return self.tensors
+            return sample_idx
             
         def inference(self, batch):
-            self.set_tensors(batch);
+            self.datum_id = self.set_tensors(batch);
             curr_epoch = self.curr_epoch
             LUT = self.opt['LUT_num_iters']
             
             num_iters = next((num_iters for (max_epoch, num_iters) in LUT if max_epoch>curr_epoch), LUT[-1][1])
             
             losses = self.inference_(num_iters)
-            return losses.average()            
+            return losses      
             
         def inference_(self, num_iters):
-            record = utils.DAverageMeter()
+            record = {}
             opt = self.opt
             det_lambda = opt['det_lambda']
             
             X_data   = self.tensors['input']
             Ygt_data = self.tensors['target']
             dE_dY    = [self.tensors['dE_dY_t'+str(t)] for t in xrange(num_iters)]
-            """
-            if len(Ygt_data.size()) == 2:
-                H, W = Ygt_data.size()
-                Ygt_data = Ygt_data.view(1, 1, H, W)
-            elif len(Ygt_data.size()) == 3:
-                C, H, W = Ygt_data.size()
-                Ygt_data = Ygt_data.view(C, 1, H, W)
-            """ 
+
             network_init   = self.networks['net_init']
             network_det    = self.networks['net_det']
             network_iter   = self.networks['net_iter']
@@ -215,8 +212,7 @@ class iter_grad_segmentation(algorithm):
             var_Ewht = torch.autograd.Variable(Ewht_data, volatile=True)
             var_det_loss[0] = criterion_det(var_detE[0], var_Egt, var_Ewht) / num_iters
             #pdb.set_trace()         
-            det_results = self.computeDetectorResults(var_detE[0].data, Egt_data, Ewht_data)
-            record.update({'det t:0': det_results})
+            record['det t:0'] = self.computeDetectorResults(var_detE[0].data, Egt_data, Ewht_data)
             for t in xrange(1, num_iters):
                 # sign(gradients) of error detector w.r.t. Yest[t-1]; 
                 dE_dY[t-1].sign_()
@@ -242,11 +238,14 @@ class iter_grad_segmentation(algorithm):
                 var_Ewht = torch.autograd.Variable(Ewht_data, volatile=True)
                 var_det_loss[t] = criterion_det(var_detE[t], var_Egt, var_Ewht) / num_iters
                 
-                det_results = self.computeDetectorResults(var_detE[t].data, Egt_data, Ewht_data)
-                record.update({'det t:'+str(t): det_results})
-                
-            record.update(self.createInferenceLossRecord(var_det_loss, var_seg_loss, var_eng_loss))
+                record['det t:'+str(t)] = self.computeDetectorResults(var_detE[t].data, Egt_data, Ewht_data)
+               
+            record['losses'] = self.createInferenceLossRecord(var_det_loss, var_seg_loss, var_eng_loss)   
             
+            if num_iters > 1:
+                record['seg res'] = self.getEvaluationResults(var_Yest_4iter[-1].data, var_Yest_4iter[0].data, var_Ygt.data)
+                #self.drawResult(var_X.data, var_Yest_4iter[-1].data, var_Yest_4iter[0].data, var_Ygt.data)
+
             return record
         
         def computeDetectorResults(self, detE, Egt, Eweight):
@@ -270,8 +269,9 @@ class iter_grad_segmentation(algorithm):
             inter_size    = float(sum(gt_positives * det_positives))
             recall        = inter_size / (sum(gt_positives)  + 10e-5)
             precision     = inter_size / (sum(det_positives) + 10e-5)
-            
-            record = {'recall':recall, 'precision':precision, 'AUC':area}
+            accuracy      = float(sum(gt_positives == det_positives)) / det_positives.shape[0] 
+
+            record = {'recall':recall, 'precision':precision, 'AUC':area, 'accuracy': accuracy}
             return record
                        
         def train_step(self, batch):
@@ -474,11 +474,12 @@ class iter_grad_segmentation(algorithm):
             
         
         def getEvaluationResults(self, predictions_tpp, predictions_init, groundtruth):
+
             predictions_tpp  = reshape_preds(predictions_tpp)
             predictions_init = reshape_preds(predictions_init)
             groundtruth      = reshape_preds(groundtruth)
             groundtruth      = groundtruth.squeeze()
-            
+
             predictions_tpp  = predictions_tpp.cpu().numpy()
             predictions_init = predictions_init.cpu().numpy()
             groundtruth      = groundtruth.cpu().numpy()
@@ -494,7 +495,6 @@ class iter_grad_segmentation(algorithm):
             groundtruth      = groundtruth[valid]
             predictions_tpp  = predictions_tpp[valid,1:]
             predictions_init = predictions_init[valid,1:]
-            
             assert(predictions_tpp.shape[1]==num_cats)
             assert(predictions_init.shape[1]==num_cats)
             assert(groundtruth.min() >= 0 and groundtruth.max() < num_cats)      
@@ -503,11 +503,37 @@ class iter_grad_segmentation(algorithm):
             resConfMeter_tpp.add(torch.from_numpy(predictions_tpp), torch.from_numpy(groundtruth))
 
             resConfMeter_init = tnt.meter.ConfusionMeter(num_cats, normalized=False)
-            resConfMeter_init.add(torch.from_numpy(predictions_init), torch.from_numpy(groundtruth))            
-            
+            resConfMeter_init.add(torch.from_numpy(predictions_init), torch.from_numpy(groundtruth))   
+                    
             results = {'conf t=1': resConfMeter_tpp, 'conf t=0': resConfMeter_init}
             
             return results 
+            
+        def drawResult(self, inp_img, seg_final, seg_init, groundtruth):
+            seg_final_conf, seg_final_labels = torch.max(seg_final, 1)
+            seg_init_conf,  seg_init_labels = torch.max(seg_init, 1)
+            
+            seg_final_labels = seg_final_labels.cpu().numpy()
+            seg_init_labels  = seg_init_labels.cpu().numpy()
+            groundtruth = groundtruth.cpu().numpy() 
+            #inp_img = inp_img.cpu().numpy()
+            
+            gt_img = self.dataset_eval.draw_seg_img(groundtruth)
+            est_init_img = self.dataset_eval.draw_seg_img(seg_init_labels)
+            est_final_img = self.dataset_eval.draw_seg_img(seg_final_labels)
+        
+            img_name = self.dataset_eval.get_img_name(self.datum_id[0])
+            
+            dsize = (gt_img.shape[1], gt_img.shape[0])
+            
+            inp_img, _ = self.dataset_eval[self.datum_id[0]]
+            inp_img = cv2.resize(inp_img, dsize=dsize, interpolation=cv2.INTER_LINEAR) 
+            inp_img = inp_img.astype(np.uint8)
+            cat_img = np.concatenate((inp_img, est_init_img, est_final_img, gt_img), 0)
+            
+            vis_path = os.path.join(self.vis_dir, img_name+'.jpg')       
+            im = Image.fromarray(cat_img)
+            im.save(vis_path)
             
         def getErrorDetectorTargets(self, Yest, Ygt):
             # BAD CODE - BAD CODE - BAD CODE - BAD CODE - BAD CODE
@@ -537,8 +563,8 @@ class iter_grad_segmentation(algorithm):
 
             #pdb.set_trace()
             # Set class weights
-            error_det_balance_class_weights = True
-            if error_det_balance_class_weights:
+            error_det_balance_class_weights = self.opt['balance_det_weights'] if ('balance_det_weights' in self.opt) else 1
+            if error_det_balance_class_weights == 1:
                 #pdb.set_trace()
                 num_elems = 2.0 + Eweight.sum() # number of valid elements 
                 num_pos   = 1.0 + Egt.sum() # count number of positive elemens 
@@ -550,7 +576,8 @@ class iter_grad_segmentation(algorithm):
                 wpos = (pos_ratio * num_elems) / num_pos
                 wneg = ((1-pos_ratio) * num_elems) / num_neg
                 #pdb.set_trace()
-                
+                #import pdb
+		#pdb.set_trace()
                 mask = torch.gt(Egt, 0.5, out=mask) 
                 Eweight.masked_fill_(mask, wpos)
 
@@ -561,6 +588,25 @@ class iter_grad_segmentation(algorithm):
                 Egt_long = torch.gt(Ygt, 0, out=Egt_long)
                 Yconf.copy_(Egt_long)
                 Eweight.mul_(Yconf)
-                #pdb.set_trace()
                 
+            elif error_det_balance_class_weights == 2:
+                num_elems = 2.0 + Eweight.sum()
+                num_pos   = round(0.05 * num_elems)
+                num_neg   = num_elems - num_pos
+                
+                pos_ratio = 0.20
+                wpos      = (pos_ratio * num_elems) / num_pos
+                wneg      = ((1-pos_ratio) * num_elems) / num_neg
+
+                mask = torch.gt(Egt, 0.5, out=mask)
+                Eweight.masked_fill_(mask, wpos)
+
+                mask = torch.lt(Egt, 0.5, out=mask)
+                Eweight.masked_fill_(mask, wneg)
+
+                # remove valid pixels by setting their weight to 0.0
+                Egt_long = torch.gt(Ygt, 0, out=Egt_long)
+                Yconf.copy_(Egt_long)
+                Eweight.mul_(Yconf)
+
             return Egt, Eweight

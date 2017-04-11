@@ -36,7 +36,7 @@ class segmentation(algorithm):
                 return getattr(nn, ctype)(copt)   
 
         def set_tensors(self, batch):
-            input, target = batch
+            input, target, datum_id = batch
             self.tensors['input'].resize_(input.size()).copy_(input)
             self.tensors['target'].resize_(target.size()).copy_(target)
                     
@@ -51,13 +51,14 @@ class segmentation(algorithm):
             target_trans = target_trans.contiguous().view(-1)
             self.tensors['target_trans'].resize_(target_trans.size()).copy_(target_trans)
             
-            return self.tensors
+            return datum_id
             
         def train_step(self, batch):
             return self.process_batch(batch, do_train=True)
             
         def inference(self, batch):
-            tensors = self.set_tensors(batch)
+            self.datum_id = self.set_tensors(batch)
+            tensors = self.tensors
             input = tensors['input']
             target = tensors['target']
             target_trans = tensors['target_trans'] 
@@ -121,7 +122,8 @@ class segmentation(algorithm):
         def process_batch(self, batch, do_train=True):
             opt = self.opt
             
-            tensors = self.set_tensors(batch)
+            self.set_tensors(batch)
+            tensors = self.tensors
             input = tensors['input']
             target = tensors['target_trans'] 
 
@@ -172,7 +174,7 @@ class segDataLoader():
         self.opt = opt
         self.is_eval_mode = is_eval_mode
         self.epoch_size = opt['epoch_size'] if ('epoch_size' in opt) else len(dataset)
-
+        
         transform_img = tnt.transform.compose([
             lambda x: x.transpose(2,0,1).astype(np.float32),
             torchvision.transforms.ToTensor(),
@@ -192,7 +194,6 @@ class segDataLoader():
         if self.is_eval_mode:
             target_scale = opt['target_scale'] if ('target_scale' in opt) else 1.0
             self.transform_fun = tnt.transform.compose([
-                #utils.Scale(scale=opt['scale'], interp_img=interp_img, interp_target=interp_target),
                 utils.ScaleSep(scale_img=opt['scale'], scale_target=target_scale, interp_img=interp_img, interp_target=interp_target),                
                 utils.ImgTargetTransform(img_transform=transform_img,target_transform=transform_target),
             ])  
@@ -210,7 +211,9 @@ class segDataLoader():
             
     def get_iterator(self, rand_seed=None):
         def load_fun_(idx):
-            return self.dataset[idx % len(self.dataset)]
+            dataset_idx = idx % len(self.dataset)
+            img, target = self.dataset[dataset_idx]
+            return img, target, dataset_idx
         
         # TODO: set rand_seed in shuffling
         list_dataset  = tnt.dataset.ListDataset(elem_list=range(self.epoch_size), load=load_fun_)

@@ -70,6 +70,12 @@ class cityscape(data.Dataset):
 
         return img, target
 
+    def get_img_name(self, index):
+        return os.path.basename(os.path.splitext(self.data[index])[0])
+
+    def get_img_path(self, index):
+        return self.data[index]
+        
     def __len__(self):
         return len(self.data)
 
@@ -112,7 +118,7 @@ class cityscape(data.Dataset):
         segimg = self.trainId2color[labelmap].astype(np.uint8)
                     
         return segimg
-        
+   
     def get_class_weights(self, balance=False):
         weights = torch.FloatTensor(self.num_cats).fill_(1.0)
 

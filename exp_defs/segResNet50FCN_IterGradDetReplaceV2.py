@@ -19,7 +19,7 @@ data_train_opt['min_scale']    = 0.8 * scale
 data_test_opt = {} 
 data_test_opt['dataset']     = 'cityscape'
 data_test_opt['split']       = 'val' # e.g. 'val' or 'test'
-data_test_opt['epoch_size']  = 500
+data_test_opt['epoch_size']  = 50
 data_test_opt['scale']       = scale
 data_test_opt['target_scale'] = scale
 
@@ -40,10 +40,10 @@ networks['net_init'] = {'def_file':   'models/modelSegResNet50FCN.py',
                         'opt': {'num_out_channels':20, 'freeze_batch_norm':True, 'single_out': True}, 
                         'optim_params': None}  
                         
-net_optim_params = {'optim_type': 'adam', 'lr': 0.0001, 'beta': (0.9, 0.999), 'LUT_lr':[(12, 0.001), (18, 0.0003), (24, 0.0001), (28, 0.00003), (32, 0.00001)]}
+net_optim_params = {'optim_type': 'adam', 'lr': 0.0001, 'beta': (0.9, 0.999), 'LUT_lr':[(14, 0.001), (20, 0.0003), (26, 0.0001), (30, 0.00003), (34, 0.00001)]}
 networks['net_iter'] = {'def_file':   'models/modelSegDetReplaceShallow.py', 
                         'pretrained': None,
-                        'opt': {'num_Ychannels':20,'num_Xchannels':3, 'numFeats':64, 'numFeatEncMax':256, 'numFeatDecMax':256, 'depth': 4}, 
+                        'opt': {'num_Ychannels':20,'num_Xchannels':3, 'numFeats':64, 'numFeatEncMax':256, 'numFeatDecMax':512, 'depth': 4}, 
                         'optim_params': net_optim_params}    
 
 det_optim_params = {'optim_type': 'adam', 'lr': 0.0001, 'beta': (0.9, 0.999), 'LUT_lr':[(12, 0.001), (18, 0.0003), (24, 0.0001), (28, 0.00003), (32, 0.00001)]}
@@ -70,8 +70,9 @@ opt['criterions'] = criterions
 opt['batch_split_size'] = 4
 opt['algorithm_type'] = 'iter_grad_segmentation'
 opt['balance_class_weights'] = True
+opt['balance_det_weights'] = 2
 
-opt['det_lambda'] = 1
+opt['det_lambda'] = 0.1
 opt['num_iters'] = 2
 opt['num_cats'] = 20
 

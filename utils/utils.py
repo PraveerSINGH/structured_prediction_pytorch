@@ -104,10 +104,14 @@ class DAverageMeter(object):
                 if not (key in self.values):
                     self.values[key] = AverageMeter()
                 self.values[key].update(val)
-            elif isinstance(val, tnt.meter.ConfusionMeter):
+            elif isinstance(val, tnt.meter.ConfusionMeter):            
                 if not (key in self.values):
                     self.values[key] = AverageConfMeter()
                 self.values[key].update(val.value())
+            elif isinstance(val, AverageConfMeter):
+                if not (key in self.values):
+                    self.values[key] = AverageConfMeter()
+                self.values[key].update(val.sum)                
             elif isinstance(val, dict):
                 if not (key in self.values):
                     self.values[key] = DAverageMeter()

@@ -17,6 +17,10 @@ import torchvision
 import cv2
 import utils
 
+import os
+from PIL import Image
+
+
 from . import algorithm
 
 
@@ -36,7 +40,19 @@ def reshape_preds(preds):
     # from the 4d tensor [B x W x H x C] to the 2d tensor [(B*W*H)xC]
     preds_trans = preds_trans.contiguous().view(-1, preds_trans.size(-1))
 
-    return preds_trans    
+    return preds_trans   
+    
+class CrossEntropyLoss2d(nn.Module):
+
+    def __init__(self, weight=None, size_average=True):
+        super(CrossEntropyLoss2d, self).__init__()
+
+        self.loss = nn.NLLLoss2d(weight=weight, size_average=size_average)
+
+    def forward(self, outputs, targets):
+        if len(targets.size()) == 4 and targets.size(0) == 1:
+            targets = targets.view(1, targets.size(2), targets.size(3))
+        return self.loss(torch.nn.functional.log_softmax(outputs), targets)           
         
 class iter_segmentation(algorithm):
         def __init__(self, opt):
@@ -51,17 +67,20 @@ class iter_segmentation(algorithm):
         def load_criterion(self, ctype, copt):
             if ctype == 'CrossEntropyLoss' and copt != None:
                 return getattr(nn, ctype)(weight=copt['weight'])   
+            elif ctype == 'CrossEntropyLoss2d':
+                weight = copt['weight'] if copt != None else None
+                return CrossEntropyLoss2d(weight=weight)
             else:
-                return getattr(nn, ctype)(copt)   
+                return getattr(nn, ctype)(copt)
 
         def set_tensors(self, batch):
-            input, target = batch
+            input, target, datum_id = batch
             self.tensors['input'].resize_(input.size()).copy_(input)
             self.tensors['target'].resize_(target.size()).copy_(target)
             target_trans = reshape_preds(target)
             self.tensors['target_trans'].resize_(target_trans.size()).copy_(target_trans)
             
-            return self.tensors
+            return datum_id
             
         def train_step(self, batch):
             return self.process_batch(batch, do_train=True)
@@ -97,41 +116,76 @@ class iter_segmentation(algorithm):
 
             resConfMeter_init = tnt.meter.ConfusionMeter(num_cats, normalized=False)
             resConfMeter_init.add(torch.from_numpy(predictions_init), torch.from_numpy(groundtruth))            
-            
             results = {'conf t=1': resConfMeter_tpp, 'conf t=0': resConfMeter_init}
             
-            return results            
+            return results   
+            
+        def drawResult(self, inp_img, seg_final, seg_init, groundtruth):
+            seg_final_conf, seg_final_labels = torch.max(seg_final, 1)
+            seg_init_conf,  seg_init_labels = torch.max(seg_init, 1)
+            
+            seg_final_labels = seg_final_labels.cpu().numpy()
+            seg_init_labels  = seg_init_labels.cpu().numpy()
+            groundtruth = groundtruth.cpu().numpy() 
+            #inp_img = inp_img.cpu().numpy()
+            
+            gt_img = self.dataset_eval.draw_seg_img(groundtruth)
+            est_init_img = self.dataset_eval.draw_seg_img(seg_init_labels)
+            est_final_img = self.dataset_eval.draw_seg_img(seg_final_labels)
+        
+            img_name = self.dataset_eval.get_img_name(self.datum_id[0])
+            
+            dsize = (gt_img.shape[1], gt_img.shape[0])
+            
+            inp_img, _ = self.dataset_eval[self.datum_id[0]]
+            inp_img = cv2.resize(inp_img, dsize=dsize, interpolation=cv2.INTER_LINEAR) 
+            inp_img = inp_img.astype(np.uint8)
+            cat_img = np.concatenate((inp_img, est_init_img, est_final_img, gt_img), 0)
+            
+            
+            vis_path = os.path.join(self.vis_dir, img_name+'.jpg')
+            #import pdb
+            #pdb.set_trace()            
+            im = Image.fromarray(cat_img)
+            im.save(vis_path)           
             
         def inference(self, batch):
-            tensors = self.set_tensors(batch)
+            self.datum_id = self.set_tensors(batch)
+            tensors = self.tensors
             input = tensors['input']
             target = tensors['target']
             
             network_iter   = self.networks['net_iter']
             network_init   = self.networks['net_init']
             
-            #criterion      = self.criterions['net']  
-            #criterion_init = self.criterions['net_init']              
-            # var_Ygt   = torch.autograd.Variable(target, volatile=True)
+            criterion = self.criterions['net']  
+            var_Ygt   = torch.autograd.Variable(target, volatile=True)
           
             # Prediction code ...
             var_X     = torch.autograd.Variable(input, volatile=True)
             var_Yinit = network_init(var_X)
+            var_seg_loss_init  = criterion(var_Yinit, var_Ygt)
 
             var_Yt    = var_Yinit
             var_Ytpp  = network_iter(var_X, var_Yt) # Y_{t+1} = F(X, Y_{t})
-            
+            var_seg_loss_final  = criterion(var_Ytpp, var_Ygt)
+        
             var_Ytpp_resized  = resize_preds_as_targets(var_Ytpp, target)
             var_Yinit_resized = resize_preds_as_targets(var_Yinit, target)
 
             results = self.getEvaluationResults(var_Ytpp_resized.data, var_Yinit_resized.data, target)
+            results['seg init'] = var_seg_loss_init.data.squeeze()[0]
+            results['seg final'] = var_seg_loss_final.data.squeeze()[0]
+            
+            #self.drawResult(var_X.data, var_Ytpp.data, var_Yinit.data, var_Ygt.data)
             
             return results
         
         def process_batch(self, batch, do_train=True):
             opt = self.opt
             
-            tensors = self.set_tensors(batch)
+            self.set_tensors(batch)
+            tensors = self.tensors
             input = tensors['input']
             # tensors['target_trans'] = reshape_preds(tensors['target'] )             
             target = tensors['target_trans'] 
