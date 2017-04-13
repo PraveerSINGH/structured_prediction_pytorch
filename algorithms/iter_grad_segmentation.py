@@ -158,7 +158,8 @@ class iter_grad_segmentation(algorithm):
             return losses      
             
         def inference_(self, num_iters):
-            record = {}
+            num_iters=2
+	    record = {}
             opt = self.opt
             det_lambda = opt['det_lambda']
             
@@ -244,7 +245,8 @@ class iter_grad_segmentation(algorithm):
             
             if num_iters > 1:
                 record['seg res'] = self.getEvaluationResults(var_Yest_4iter[-1].data, var_Yest_4iter[0].data, var_Ygt.data)
-                #self.drawResult(var_X.data, var_Yest_4iter[-1].data, var_Yest_4iter[0].data, var_Ygt.data)
+                #self.drawResult(var_X.data, var_Yest_4iter[-1].data, var_Yest_4iter[0].data, var_Ygt.data,
+                #                var_detE[0].data, var_detE[-1].data, var_dE_dYest[0].data)
 
             return record
         
@@ -509,14 +511,41 @@ class iter_grad_segmentation(algorithm):
             
             return results 
             
-        def drawResult(self, inp_img, seg_final, seg_init, groundtruth):
+        def drawResult(self, inp_img, seg_final, seg_init, groundtruth, detE_init, detE_final, dY_dE_init):
             seg_final_conf, seg_final_labels = torch.max(seg_final, 1)
             seg_init_conf,  seg_init_labels = torch.max(seg_init, 1)
             
             seg_final_labels = seg_final_labels.cpu().numpy()
             seg_init_labels  = seg_init_labels.cpu().numpy()
             groundtruth = groundtruth.cpu().numpy() 
+            
+            detE_init = detE_init.cpu().squeeze().numpy()
+            detE_final = detE_final.cpu().squeeze().numpy()
+            dY_dE_init = dY_dE_init.cpu().squeeze().mean(0).squeeze().numpy()
+            
+            dY_dE_init += 1
+            dY_dE_init *= 0.5 * 255
+            detE_final *= 255
+            detE_init  *= 255
+            
+            detE_init   = detE_init.astype(np.uint8)
+            detE_final  = detE_final.astype(np.uint8)
+            dY_dE_init  = dY_dE_init.astype(np.uint8)
+
+            #import pdb
+            #
+            
+            height, width = detE_init.shape
+            detE_init   = detE_init.astype(np.uint8).reshape(height, width,1)
+            detE_final  = detE_final.astype(np.uint8).reshape(height, width,1)
+            #pdb.set_trace()
+            dY_dE_init  = dY_dE_init.astype(np.uint8).reshape(height, width,1)
+            
+            detE_init   = np.repeat(detE_init, 3,axis=2)
+            detE_final  = np.repeat(detE_final,3,axis=2)
+            dY_dE_init  = np.repeat(dY_dE_init,3,axis=2)
             #inp_img = inp_img.cpu().numpy()
+
             
             gt_img = self.dataset_eval.draw_seg_img(groundtruth)
             est_init_img = self.dataset_eval.draw_seg_img(seg_init_labels)
@@ -529,8 +558,11 @@ class iter_grad_segmentation(algorithm):
             inp_img, _ = self.dataset_eval[self.datum_id[0]]
             inp_img = cv2.resize(inp_img, dsize=dsize, interpolation=cv2.INTER_LINEAR) 
             inp_img = inp_img.astype(np.uint8)
-            cat_img = np.concatenate((inp_img, est_init_img, est_final_img, gt_img), 0)
+            cat_img0 = np.concatenate((inp_img, est_init_img, est_final_img, gt_img), 0)
+            cat_img1 = np.concatenate((dY_dE_init, detE_init, detE_final,   gt_img), 0)
+            cat_img  = np.concatenate((cat_img0, cat_img1),1)
             
+            #pdb.set_trace()
             vis_path = os.path.join(self.vis_dir, img_name+'.jpg')       
             im = Image.fromarray(cat_img)
             im.save(vis_path)

@@ -108,7 +108,7 @@ class RandomCrop(object):
         self.crop_height = crop_height
         
     def __call__(self, sample):
-        img, target = sample
+        img, target = sample[:2]
         assert(isinstance(img,np.ndarray))
         assert(isinstance(img,np.ndarray))
         assert(img.shape[1] == target.shape[1])
