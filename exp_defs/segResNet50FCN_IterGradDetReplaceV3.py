@@ -19,7 +19,7 @@ data_train_opt['min_scale']    = 0.8 * scale
 data_test_opt = {} 
 data_test_opt['dataset']     = 'cityscape'
 data_test_opt['split']       = 'val' # e.g. 'val' or 'test'
-data_test_opt['epoch_size']  = 50
+data_test_opt['epoch_size']  = 500
 data_test_opt['scale']       = scale
 data_test_opt['target_scale'] = scale
 

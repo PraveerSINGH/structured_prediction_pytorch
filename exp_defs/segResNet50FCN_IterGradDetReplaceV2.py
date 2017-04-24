@@ -63,6 +63,7 @@ opt['networks'] = networks
 criterions            = {}
 criterions['net']     = {'ctype':'CrossEntropyLoss2d', 'opt':None}
 criterions['det']     = {'ctype':'BCEWeightedLoss', 'opt':None}
+#criterions['det_aux'] = {'ctype':'EngValueLoss', 'opt':None}
 criterions['det_aux'] = {'ctype':'BCEDetAuxLoss', 'opt':None}
 
 

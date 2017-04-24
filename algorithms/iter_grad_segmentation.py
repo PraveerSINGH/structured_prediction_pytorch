@@ -68,6 +68,13 @@ class BCEDetAuxLoss(nn.Module):
         loss = loss_per_element.mean()
         loss *= -1
         return loss
+
+class EngValueLoss(nn.Module):
+    def __init__(self):
+        super(EngValueLoss, self).__init__()
+
+    def forward(self, X):
+	return X.mean()
         
 class CrossEntropyLoss2d(nn.Module):
 
@@ -87,10 +94,11 @@ def copy_grad_hook(vcopy):
         return v
     return hook_
     
-def create_var_Yest_4det(var_Yest_4iter, dE_dY_data, is_train=False, requires_grad=True, volatile=False):
+def create_var_Yest_4det(var_Yest_4iter, dE_dY_data, is_train=False):
     var_Yest_4det = var_Yest_4iter.clone() if is_train else var_Yest_4iter.detach()
-    var_Yest_4det.requires_grad = True
-    var_Yest_4det.volatile = False
+    if is_train==False:
+        var_Yest_4det.requires_grad = True
+        var_Yest_4det.volatile = False
     hook = var_Yest_4det.register_hook(copy_grad_hook(dE_dY_data))
     return var_Yest_4det, hook
         
@@ -127,7 +135,9 @@ class iter_grad_segmentation(algorithm):
                 return BCEWeightedLoss()
             elif ctype == 'BCEDetAuxLoss':
                 return BCEDetAuxLoss()
-            elif ctype == 'CrossEntropyLoss2d':
+            elif ctype == 'EngValueLoss':
+		return EngValueLoss()
+	    elif ctype == 'CrossEntropyLoss2d':
                 weight = copt['weight'] if copt != None else None
                 return CrossEntropyLoss2d(weight=weight)
             else:
@@ -153,13 +163,13 @@ class iter_grad_segmentation(algorithm):
             LUT = self.opt['LUT_num_iters']
             
             num_iters = next((num_iters for (max_epoch, num_iters) in LUT if max_epoch>curr_epoch), LUT[-1][1])
+            num_iters = 2
             
             losses = self.inference_(num_iters)
             return losses      
             
         def inference_(self, num_iters):
-            num_iters=2
-	    record = {}
+            record = {}
             opt = self.opt
             det_lambda = opt['det_lambda']
             
@@ -199,9 +209,14 @@ class iter_grad_segmentation(algorithm):
             
             # forward through the detector network    
             var_Yest_4det[0], hook = create_var_Yest_4det(var_Yest_4iter[0], dE_dY[0], is_train=False)
-            var_detE[0]     = network_det(var_X_4det, var_Yest_4det[0])
-            # compute gradients w.r.t. the energy            
-            var_eng_loss[0] = det_lambda * criterion_eng(var_detE[0])
+            var_detE[0], var_detEval = network_det(var_X_4det, var_Yest_4det[0], retPriorSigm=True)
+            # compute gradients w.r.t. the energy
+            criterion_eng_type = self.opt['criterions']['det_aux']['ctype']
+            if criterion_eng_type == 'BCEDetAuxLoss':
+                var_eng_loss[0] = det_lambda * criterion_eng(var_detE[0])
+            elif criterion_eng_type == 'EngValueLoss':
+                var_eng_loss[0] = det_lambda * criterion_eng(var_detEval)
+            
             var_eng_loss[0].backward() 
             hook.remove()
             
@@ -214,20 +229,94 @@ class iter_grad_segmentation(algorithm):
             var_det_loss[0] = criterion_det(var_detE[0], var_Egt, var_Ewht) / num_iters
             #pdb.set_trace()         
             record['det t:0'] = self.computeDetectorResults(var_detE[0].data, Egt_data, Ewht_data)
+#            import pdb            
             for t in xrange(1, num_iters):
                 # sign(gradients) of error detector w.r.t. Yest[t-1]; 
+#                dY  = dE_dY[t-1].clone()
+#                Yi  = var_Yest_4iter[t-1].data.clone()
+#                vdY = torch.autograd.Variable(dY, volatile=True) 
+#                vYi = torch.autograd.Variable(Yi, volatile=True)
+#                vYn = vYi-0.1*torch.sign(vdY)
+#                #pdb.set_trace()
+#                print('datum_id:', self.datum_id[0])
+#                print('Seg Loss(vYi): ',               criterion_iter(vYi, var_Ygt).data.squeeze()[0])
+#                print('Seg Loss(vYi-0.3*sign(vdY)): ', criterion_iter(vYn, var_Ygt).data.squeeze()[0])
+#                print('Eng(vYi): ',               criterion_eng(network_det(var_X, vYi, retPriorSigm=True)[0]).data.squeeze()[0])
+#                print('Eng(vYi-0.3*sign(vdY)): ', criterion_eng(network_det(var_X, vYn, retPriorSigm=True)[0]).data.squeeze()[0])
+#                pdb.set_trace()
+#                stats = utils.DAverageMeter()
+#                stats.update(self.getEvaluationResults(vYn.data, vYi.data, var_Ygt.data))
+#                print(stats.average())
+#                
+#                grad_data = dY.abs()
+#                print('dY / dEngLoss mean:',  grad_data.mean())
+#                print('dY / dEngLoss max:',   grad_data.max())
+#                print('dY / dEngLoss std:',   grad_data.std())
+#                vYi2 = torch.autograd.Variable(vYi.data, requires_grad=True)
+#                vYgt = torch.autograd.Variable(var_Ygt.data)
+#                loss2 = criterion_iter(vYi2, vYgt)
+#                loss2.backward()  
+#                print('Seg Loss(vYi) :', loss2.data.squeeze()[0])
+#                grad_data = vYi2.grad.data.abs()
+#                print('dY / dSegLoss mean:',  grad_data.mean())
+#                print('dY / dSegLoss max:',   grad_data.max())
+#                print('dY / dSegLoss std:',   grad_data.std())
+#                
+#                
+#                vdY2 = torch.autograd.Variable(vYi2.grad.data, volatile=True) 
+#                vYn2 = vYi-0.3*torch.sign(vdY2)
+#                #pdb.set_trace()
+#                print('Seg Loss(vYi): ',               criterion_iter(vYi, var_Ygt).data.squeeze()[0])
+#                print('Seg Loss(vYi-0.3*sign(vdY)): ', criterion_iter(vYn2, var_Ygt).data.squeeze()[0])
+#                print('Eng(vYi): ',               criterion_eng(network_det(var_X, vYi, retPriorSigm=True)[0]).data.squeeze()[0])
+#                print('Eng(vYi-0.3*sign(vdY)): ', criterion_eng(network_det(var_X, vYn2, retPriorSigm=True)[0]).data.squeeze()[0])
+#                dY2 = vYi2.grad.data
+#                numels = dY2.numel()
+#                print('dY2 -1 ratio:' ,float(torch.eq(dY2.sign(), -1).sum()) / numels)
+#                print('dY2 +1 ratio:' ,float(torch.eq(dY2.sign(),  1).sum()) / numels)
+#                print('dY2  0 ratio:' ,float(torch.eq(dY2.sign(),  0).sum()) / numels)
+#                
+#                print('dY1 -1 ratio:' ,float(torch.eq(dY.sign(), -1).sum()) / numels)
+#                print('dY1 +1 ratio:' ,float(torch.eq(dY.sign(),  1).sum()) / numels)
+#                print('dY1  0 ratio:' ,float(torch.eq(dY.sign(),  0).sum()) / numels)
+#                
+#                print('dY1 dY2 accur:' ,float(torch.eq(dY.sign(), dY2.sign()).sum()) / numels)
+#                pdb.set_trace()
+                
+                
+                
+#                
+#                vEi = torch.autograd.Variable(var_detE[t-1].data.repeat(1,20,1,1), volatile=True)
+#                #vYn = torch.mul(1.0 - vEi, vYi,) - 0.3 * torch.mul(vEi, torch.sign(vdY))
+#                vYn = vYi - 0.1 * torch.mul(vEi, torch.sign(vdY))
+#                vYn = torch.mul(1-vEi, vYi)
+#                #pdb.set_trace()
+#                print('datum_id:', self.datum_id[0])
+#                print('Seg Loss(vYi): ',               criterion_iter(vYi, var_Ygt).data.squeeze()[0])
+#                print('Seg Loss(vYi-0.3*sign(vdY)): ', criterion_iter(vYn, var_Ygt).data.squeeze()[0])
+#                print('Eng(vYi): ',               criterion_eng(network_det(var_X, vYi, retPriorSigm=True)[0]).data.squeeze()[0])
+#                print('Eng(vYi-0.3*sign(vdY)): ', criterion_eng(network_det(var_X, vYn, retPriorSigm=True)[0]).data.squeeze()[0])                
+#                pdb.set_trace()
+            
                 dE_dY[t-1].sign_()
                 var_dE_dYest[t-1] = torch.autograd.Variable(dE_dY[t-1], volatile=True) 
+                #var_dE_dYest[t-1] = torch.autograd.Variable(dE_dY[t-1].sign(), volatile=True) 
                 var_Yest_4iter[t-1].volatile = True
                 
-                var_Yest_4iter[t] = network_iter(var_X, var_Yest_4iter[t-1], var_detE[t-1], var_dE_dYest[t-1])
+                gamma = 0.03                
+                var_Yest_4iter[t] = var_Yest_4iter[t-1] - gamma * var_dE_dYest[t-1]
+                #var_Yest_4iter[t] = network_iter(var_X, var_Yest_4iter[t-1], var_detE[t-1], var_dE_dYest[t-1])
                 var_seg_loss[t]   = criterion_iter(var_Yest_4iter[t], var_Ygt)
                 
                 # forward through the detector network    
                 var_Yest_4det[t], hook = create_var_Yest_4det(var_Yest_4iter[t], dE_dY[t], is_train=False)
-                var_detE[t]     = network_det(var_X_4det, var_Yest_4det[t])
-                # compute gradients w.r.t. the energy 
-                var_eng_loss[t] = det_lambda * criterion_eng(var_detE[t])
+                var_detE[t], var_detEval = network_det(var_X_4det, var_Yest_4det[t], retPriorSigm=True)
+                # compute gradients w.r.t. the energy
+                if criterion_eng_type == 'BCEDetAuxLoss':
+                    var_eng_loss[t] = det_lambda * criterion_eng(var_detE[t])
+                elif criterion_eng_type == 'EngValueLoss':
+                    var_eng_loss[t] = det_lambda * criterion_eng(var_detEval)
+
                 var_eng_loss[t].backward() 
                 hook.remove()
                 
@@ -246,7 +335,7 @@ class iter_grad_segmentation(algorithm):
             if num_iters > 1:
                 record['seg res'] = self.getEvaluationResults(var_Yest_4iter[-1].data, var_Yest_4iter[0].data, var_Ygt.data)
                 #self.drawResult(var_X.data, var_Yest_4iter[-1].data, var_Yest_4iter[0].data, var_Ygt.data,
-                #                var_detE[0].data, var_detE[-1].data, var_dE_dYest[0].data)
+                #                var_detE[0].data, var_detE[-1].data, dE_dY[0])
 
             return record
         
@@ -347,13 +436,20 @@ class iter_grad_segmentation(algorithm):
                 if num_iters > 1:
                     var_X             = torch.autograd.Variable(X)
                     var_Yest_4iter[0] = torch.autograd.Variable(var_Yest_init.data, requires_grad=True)
-                    var_Yest_4det[0]  = var_Yest_4iter[0].clone() # it would be better if, instead of cloning I was performing another operation
-                    hook = var_Yest_4det[0].register_hook(copy_grad_hook(dE_dY[0]))
                     
-                    var_detE[0]     = network_det(var_X, var_Yest_4det[0])
-                    var_det_loss[0] = det_lambda * criterion_det_aux(var_detE[0])
+                    #var_Yest_4det[0] = var_Yest_4iter[0].clone() 
+                    #hook = var_Yest_4det[0].register_hook(copy_grad_hook(dE_dY[0]))
+                    var_Yest_4det[0], hook = create_var_Yest_4det(var_Yest_4iter[0], dE_dY[0], is_train=True)
+                    var_detE[0], var_detEval = network_det(var_X, var_Yest_4det[0], retPriorSigm=True)
+                    # compute gradients w.r.t. the energy
+                    criterion_eng_type = self.opt['criterions']['det_aux']['ctype']
+                    if criterion_eng_type == 'BCEDetAuxLoss':
+                        var_det_loss[0] = det_lambda * criterion_det_aux(var_detE[0])
+                    elif criterion_eng_type == 'EngValueLoss':
+                        var_det_loss[0] = det_lambda * criterion_det_aux(var_detEval)
                     var_det_loss[0].backward(retain_variables=True) 
-                    hook.remove()
+                    hook.remove()                    
+                
                     #pdb.set_trace()
                     
                     for t in xrange(1, num_iters):
@@ -364,10 +460,15 @@ class iter_grad_segmentation(algorithm):
                         var_seg_loss[t]   = criterion_iter(var_Yest_4iter[t], var_Ygt)
                         Yest[t].copy_(var_Yest_4iter[t].data)
                         
-                        var_Yest_4det[t] = var_Yest_4iter[t].clone() 
-                        hook = var_Yest_4det[t].register_hook(copy_grad_hook(dE_dY[t]))
-                        var_detE[t]     = network_det(var_X, var_Yest_4det[t])
-                        var_det_loss[t] = det_lambda * criterion_det_aux(var_detE[t])
+                        #var_Yest_4det[t] = var_Yest_4iter[t].clone() 
+                        #hook = var_Yest_4det[t].register_hook(copy_grad_hook(dE_dY[t]))
+                        var_Yest_4det[t], hook = create_var_Yest_4det(var_Yest_4iter[t], dE_dY[t], is_train=True)
+                        var_detE[t], var_detEval = network_det(var_X, var_Yest_4det[t], retPriorSigm=True)
+                        # compute gradients w.r.t. the energy
+                        if criterion_eng_type == 'BCEDetAuxLoss':
+                            var_det_loss[t] = det_lambda * criterion_det_aux(var_detE[t])
+                        elif criterion_eng_type == 'EngValueLoss':
+                            var_det_loss[t] = det_lambda * criterion_det_aux(var_detEval)
                         var_det_loss[t].backward(retain_variables=True) 
                         hook.remove()
     
@@ -515,42 +616,55 @@ class iter_grad_segmentation(algorithm):
             seg_final_conf, seg_final_labels = torch.max(seg_final, 1)
             seg_init_conf,  seg_init_labels = torch.max(seg_init, 1)
             
+            Egt_final = self.getErrorDetectorTargets(seg_final, groundtruth)[0].cpu().numpy()
+            Egt_init  = self.getErrorDetectorTargets(seg_init, groundtruth)[0].cpu().numpy()
+            
             seg_final_labels = seg_final_labels.cpu().numpy()
             seg_init_labels  = seg_init_labels.cpu().numpy()
             groundtruth = groundtruth.cpu().numpy() 
             
             detE_init = detE_init.cpu().squeeze().numpy()
             detE_final = detE_final.cpu().squeeze().numpy()
-            dY_dE_init = dY_dE_init.cpu().squeeze().mean(0).squeeze().numpy()
             
-            dY_dE_init += 1
-            dY_dE_init *= 0.5 * 255
+            #import pdb
+            #pdb.set_trace()
+            
+            grad_suppress_labels = torch.max(dY_dE_init, 1)[1]
+            grad_incide_labels   = torch.min(dY_dE_init, 1)[1]
+            grad_suppress_labels = grad_suppress_labels.cpu().numpy()
+            grad_incide_labels   = grad_incide_labels.cpu().numpy()
+            
             detE_final *= 255
             detE_init  *= 255
+
+            Egt_final *= 255
+            Egt_init  *= 255
             
             detE_init   = detE_init.astype(np.uint8)
             detE_final  = detE_final.astype(np.uint8)
-            dY_dE_init  = dY_dE_init.astype(np.uint8)
+            Egt_final   = Egt_final.astype(np.uint8)
+            Egt_init    = Egt_init.astype(np.uint8)
 
-            #import pdb
-            #
-            
             height, width = detE_init.shape
             detE_init   = detE_init.astype(np.uint8).reshape(height, width,1)
             detE_final  = detE_final.astype(np.uint8).reshape(height, width,1)
-            #pdb.set_trace()
-            dY_dE_init  = dY_dE_init.astype(np.uint8).reshape(height, width,1)
+            Egt_init    = Egt_init.astype(np.uint8).reshape(height, width,1)
+            Egt_final   = Egt_final.astype(np.uint8).reshape(height, width,1)
+
             
             detE_init   = np.repeat(detE_init, 3,axis=2)
             detE_final  = np.repeat(detE_final,3,axis=2)
-            dY_dE_init  = np.repeat(dY_dE_init,3,axis=2)
-            #inp_img = inp_img.cpu().numpy()
-
             
+            Egt_init    = np.repeat(Egt_init, 3,axis=2)
+            Egt_final   = np.repeat(Egt_final,3,axis=2)
+
             gt_img = self.dataset_eval.draw_seg_img(groundtruth)
             est_init_img = self.dataset_eval.draw_seg_img(seg_init_labels)
             est_final_img = self.dataset_eval.draw_seg_img(seg_final_labels)
-        
+            
+            grad_suppress_labels_img = self.dataset_eval.draw_seg_img(grad_suppress_labels)
+            grad_incide_labels_img = self.dataset_eval.draw_seg_img(grad_incide_labels)
+            
             img_name = self.dataset_eval.get_img_name(self.datum_id[0])
             
             dsize = (gt_img.shape[1], gt_img.shape[0])
@@ -559,8 +673,10 @@ class iter_grad_segmentation(algorithm):
             inp_img = cv2.resize(inp_img, dsize=dsize, interpolation=cv2.INTER_LINEAR) 
             inp_img = inp_img.astype(np.uint8)
             cat_img0 = np.concatenate((inp_img, est_init_img, est_final_img, gt_img), 0)
-            cat_img1 = np.concatenate((dY_dE_init, detE_init, detE_final,   gt_img), 0)
-            cat_img  = np.concatenate((cat_img0, cat_img1),1)
+            cat_img1 = np.concatenate((grad_suppress_labels_img, detE_init, detE_final, gt_img), 0)
+            cat_img2 = np.concatenate((grad_incide_labels_img,   Egt_init, Egt_final,  gt_img), 0)
+
+            cat_img  = np.concatenate((cat_img0, cat_img1, cat_img2),1)
             
             #pdb.set_trace()
             vis_path = os.path.join(self.vis_dir, img_name+'.jpg')       
