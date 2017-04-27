@@ -529,13 +529,23 @@ class StereoDataTransform(object):
         
     def __call__(self, sample):
         img, target = sample[:2]
+        
+        img = img.transpose(2,0,1).astype(np.float32)
+        img = torch.from_numpy(img)
+       
+        target = target.astype(np.float32)
+        target = target.from_numpy(target).contiguous()
+        target = target.view(1, target.size(0), target.size(1))
+
+        valid = target.gt(0.0).float()        
+        
         if self.img_transform != None:
             img = self.img_transform(img)
 
         if self.target_transform != None:
             target = self.target_transform(target)   
     
-        return (img, target) + sample[2:]       
+        return (img, target, valid) + sample[2:]       
        
 class stereoDataLoader():
     def __init__(self, dataset, opt, is_eval_mode):
@@ -555,15 +565,10 @@ class stereoDataLoader():
         
         # add adapth the relevant code for preprocessing the X and Y inputs            
         transform_img = tnt.transform.compose([
-            lambda x: x.transpose(2,0,1).astype(np.float32),
-            lambda x: torch.from_numpy(x),
             torchvision.transforms.Normalize(mean=inpMean, std=inpStd),
         ])
 
         transform_target = tnt.transform.compose([
-            lambda x: x.astype(np.float32),
-            lambda x: torch.from_numpy(x).contiguous(),
-            lambda x: x.view(1,x.size(0), x.size(1)),
             torchvision.transforms.Normalize(mean=inpMean[-1], std=inpStd[-1]),
         ])
         
@@ -571,7 +576,7 @@ class stereoDataLoader():
             pad_mult = opt['pad_mult'] if ('pad_mult' in opt) else 1            
             self.transform_fun = tnt.transform.compose([
                 utils.PadMult(pad_mult, borderType=cv2.BORDER_CONSTANT, borderValue=0),
-                utils.ImgTargetTransform(img_transform=transform_img,target_transform=transform_target),
+                StereoDataTransform(img_transform=transform_img,target_transform=transform_target),
             ])  
             self.batch_size = 1
             self.num_workers = 1
@@ -579,7 +584,7 @@ class stereoDataLoader():
             self.transform_fun = tnt.transform.compose([
                 utils.RandomCrop(crop_width=opt['crop_width'], crop_height=opt['crop_height']),
                 utils.RandomFlip(),
-                utils.ImgTargetTransform(img_transform=transform_img,target_transform=transform_target),
+                StereoDataTransform(img_transform=transform_img,target_transform=transform_target),
             ])
             self.batch_size = opt['batch_size']
             self.num_workers = opt['num_workers']

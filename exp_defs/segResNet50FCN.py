@@ -52,7 +52,7 @@ networks['net'] = {'def_file': net_def_file,
 opt['networks'] = networks
 
 criterions = {}
-criterions['net'] = {'ctype':'CrossEntropyLoss', 'opt':None}
+criterions['net'] = {'ctype':'CrossEntropyLoss2d', 'opt':None}
 
 opt['criterions'] = criterions
 opt['batch_split_size'] = 4

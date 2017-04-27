@@ -48,9 +48,6 @@ data_loader_train = dataloaders.segDataLoader(dataset=dataset_train, opt=data_tr
 # This is not right place for this code.
 opt['criterions']['net']['opt'] = {'weight': dataset_train.get_class_weights(balance=opt['balance_class_weights'])}  
 
-import pdb
-pdb.set_trace()
-
 if not ('algorithm_type' in opt):
     opt['algorithm_type'] = 'segmentation'
 

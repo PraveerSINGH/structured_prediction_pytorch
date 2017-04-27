@@ -17,6 +17,35 @@ import utils
 
 from . import algorithm
 
+def resize_preds_as_targets(preds, target):
+    target_height, target_width = target.size(2), target.size(3)        
+    preds_height, preds_width = preds.size(2), preds.size(3)
+    if target_height != preds_height or target_width != preds_width:
+        assert(target_height/preds_height == target_width/preds_width)
+        scale = target_height/preds_height
+        preds = nn.functional.upsample_bilinear(preds, scale_factor=scale)
+        
+    return preds
+    
+def reshape_preds(preds):
+    # e.g. [B x C x H x W] --> [B x W x H x C]
+    preds_trans = preds.transpose(1,len(preds.size())-1)
+    # from the 4d tensor [B x W x H x C] to the 2d tensor [(B*W*H)xC]
+    preds_trans = preds_trans.contiguous().view(-1, preds_trans.size(-1))
+
+    return preds_trans 
+
+class CrossEntropyLoss2d(nn.Module):
+    def __init__(self, weight=None, size_average=True):
+        super(CrossEntropyLoss2d, self).__init__()
+
+        self.loss = nn.NLLLoss2d(weight=weight, size_average=size_average)
+
+    def forward(self, outputs, targets):
+        if len(targets.size()) == 4 and targets.size(0) == 1:
+            targets = targets.view(1, targets.size(2), targets.size(3))
+        return self.loss(torch.nn.functional.log_softmax(outputs), targets) 
+
 class segmentation(algorithm):
         def __init__(self, opt):
             algorithm.__init__(self, opt)
@@ -25,30 +54,20 @@ class segmentation(algorithm):
             self.tensors = {}
             self.tensors['input']  = torch.FloatTensor()
             self.tensors['target'] = torch.LongTensor()
-            self.tensors['target_trans'] = torch.LongTensor()
             
         def load_criterion(self, ctype, copt):
             if ctype == 'CrossEntropyLoss' and copt != None:
                 return getattr(nn, ctype)(weight=copt['weight'])   
+            elif ctype == 'CrossEntropyLoss2d':
+                weight = copt['weight'] if copt != None else None
+                return CrossEntropyLoss2d(weight=weight)                
             else:
                 return getattr(nn, ctype)(copt)   
-
+                                 
         def set_tensors(self, batch):
             input, target, datum_id = batch
             self.tensors['input'].resize_(input.size()).copy_(input)
             self.tensors['target'].resize_(target.size()).copy_(target)
-                    
-            # Some hacks because there is no spatial cross entropy in
-            # pytorch and thus I have to transform the shape of the targets
-            # and output predictions in order to match what the cross 
-            # entropy layer expects.
-                    
-            # From [B x 1 x H x W] to [B x W x H x 1]
-            target_trans = target.transpose(1,len(target.size())-1)
-            # from the 4d tensor [B x W x H x 1] to the 2d tensor [(B*W*H)]
-            target_trans = target_trans.contiguous().view(-1)
-            self.tensors['target_trans'].resize_(target_trans.size()).copy_(target_trans)
-            
             return datum_id
             
         def train_step(self, batch):
@@ -59,62 +78,23 @@ class segmentation(algorithm):
             tensors = self.tensors
             input = tensors['input']
             target = tensors['target']
-            target_trans = tensors['target_trans'] 
             
             var_input  = torch.autograd.Variable(input, volatile=True)
-            var_target = torch.autograd.Variable(target_trans, volatile=True)
+            var_target = torch.autograd.Variable(target, volatile=True)
 
             network = self.networks['net']
             criterion = self.criterions['net']  
             
             # forward through the network
-            var_output = network(var_input)
-            predictions_trans = var_output[1]
-            #var_loss = criterion(predictions_trans, var_target)
-            preds = var_output[0]
+            var_prediction = network(var_input)
+            var_prediction = resize_preds_as_targets(var_prediction, var_target)
+            var_loss       = criterion(var_prediction, var_target)
+
+            resLoss = var_loss.data.cpu().squeeze()[0]
             
-            
-            target_height, target_width = target.size(2), target.size(3)        
-            preds_height, preds_width = preds.size(2), preds.size(3)
-            
-            if target_height != preds_height or target_width != preds_width:
-                assert(target_height/preds_height == target_width/preds_width)
-                scale = target_height/preds_height
-                preds = nn.functional.upsample_bilinear(preds, scale_factor=scale)
-                
-                
-            # e.g. [B x C x H x W] --> [B x W x H x C]
-            preds_trans = preds.transpose(1,len(preds.size())-1)
-            # from the 4d tensor [B x W x H x C] to the 2d tensor [(B*W*H)xC]
-            preds_trans = preds_trans.contiguous().view(-1, preds_trans.size(-1))
-            
-            #predictions  = var_output[1].data.cpu().numpy()
-            predictions  = preds_trans.data.cpu().numpy()
-            groundtruths = target_trans.cpu().numpy()
-            # -- hacks here: make sure that you do not consider the first 
-            # category which is for pixels with missing annotation.
-            #import pdb
-            #pdb.set_trace()
-            num_cats = predictions.shape[1] - 1 # the first category is for pixels with missing annotation
-            groundtruths -= 1
-            valid = groundtruths >= 0 # The first category (label -1) is for pixels with missing annotation
-            groundtruths = groundtruths[valid]
-            predictions = predictions[valid,1:]
-            
-            assert(predictions.shape[0]==groundtruths.shape[0])
-            assert(predictions.shape[1]==num_cats)
-            assert(groundtruths.min() >= 0 and groundtruths.max() < num_cats)      
-            
-            resConfMeter = tnt.meter.ConfusionMeter(num_cats, normalized=False)
-            resConfMeter.add(torch.from_numpy(predictions), torch.from_numpy(groundtruths))
-            resLoss = 0.0 #var_loss.data.cpu().squeeze()[0]
-            results = {'loss': resLoss, 'conf': resConfMeter}
-            
-            # TODO list:            
-            # 1) Scale predictions on the original image size
-            # 2) Load ground truth targets (on the original image size)
-            # 3) save resutls (e.g. predictions other intermediate results)
-            
+            results = {'loss': resLoss, 
+                        'conf': self.getEvaluationResults(var_prediction.data, var_target.data)}
+                        
             return results
             
         def process_batch(self, batch, do_train=True):
@@ -123,7 +103,7 @@ class segmentation(algorithm):
             self.set_tensors(batch)
             tensors = self.tensors
             input = tensors['input']
-            target = tensors['target_trans'] 
+            target = tensors['target'] 
 
             # Because the entire batch might not fit in the GPU memory,
             # we split it in chunks of @batch_split_size
@@ -147,7 +127,6 @@ class segmentation(algorithm):
                 var_target = torch.autograd.Variable(target_chunk, volatile=(not do_train))
                 # forward through the network
                 var_output = network(var_input)
-                var_output = var_output[1]
                 # compute the objective loss
                 var_loss   = criterion(var_output, var_target)
                 if do_train: 
@@ -161,3 +140,30 @@ class segmentation(algorithm):
                 optimizer.step()
                 
             return losses.average()
+            
+        def getEvaluationResults(self, predictions, groundtruth):
+
+            predictions  = reshape_preds(predictions)
+            groundtruth  = reshape_preds(groundtruth)
+            groundtruth  = groundtruth.squeeze()
+
+            predictions  = predictions.cpu().numpy()
+            groundtruth  = groundtruth.cpu().numpy()
+            
+            # -- hacks here: make sure that you do not consider the first 
+            # category which is for pixels with missing annotation.
+            num_cats = predictions.shape[1] - 1 # the first category is for pixels with missing annotation
+            groundtruth -= 1 
+            
+            # The first category (label -1) is for pixels with missing annotation
+            valid            = groundtruth >= 0 
+            
+            groundtruth  = groundtruth[valid]
+            predictions  = predictions[valid,1:]
+            assert(predictions.shape[1]==num_cats)
+            assert(groundtruth.min() >= 0 and groundtruth.max() < num_cats)      
+            
+            resConfMeter = tnt.meter.ConfusionMeter(num_cats, normalized=False)
+            resConfMeter.add(torch.from_numpy(predictions), torch.from_numpy(groundtruth))
+            
+            return resConfMeter            
