@@ -43,6 +43,7 @@ class _model(nn.Module):
 
         self.num_out_channels = opt['num_out_channels']        
         self.freeze_batch_norm = opt['freeze_batch_norm']
+        self.single_out        = opt['single_out'] if ('single_out' in opt) else True
         
         resnet = torchvision.models.resnet50(pretrained=True)
         
@@ -115,18 +116,22 @@ class _model(nn.Module):
         ave_out = out4+out3+out2+out1        
         
         output = self.final_upsample(ave_out)
-        # TODO:
-        # 1) find an implementation of the spatial softmax layer
-
-        # move the 2nd dimension (i.e. the channels dimension) to the last position:
-        # e.g. [B x C x H x W] --> [B x W x H x C]
-        output_trans = output.transpose(1,len(output.size())-1)
-        # from the 4d tensor [B x W x H x C] to the 2d tensor [(B*W*H)xC]
-        output_trans = output_trans.contiguous().view(-1, output_trans.size(-1))
-        # Apply softmax accross the channels dimension
-        output_trans_softmax = nn.functional.softmax(output_trans)
         
-        return output, output_trans, output_trans_softmax
+        if self.single_out:
+            return output
+        else:
+            # TODO:
+            # 1) find an implementation of the spatial softmax layer
+    
+            # move the 2nd dimension (i.e. the channels dimension) to the last position:
+            # e.g. [B x C x H x W] --> [B x W x H x C]
+            output_trans = output.transpose(1,len(output.size())-1)
+            # from the 4d tensor [B x W x H x C] to the 2d tensor [(B*W*H)xC]
+            output_trans = output_trans.contiguous().view(-1, output_trans.size(-1))
+            # Apply softmax accross the channels dimension
+            output_trans_softmax = nn.functional.softmax(output_trans)
+            
+            return output, output_trans, output_trans_softmax
         
         
 def create_model(opt):

@@ -8,12 +8,17 @@ from __future__ import print_function
 import torch
 import torch.utils.data as data
 from tqdm import tqdm
+import torchvision
+import cv2
+import utils
+import torchnet as tnt
 
 from PIL import Image
 import os
 import os.path
 import numpy as np
 import imp
+
 
 class cityscape(data.Dataset):
     base_folder = 'Cityscape'
@@ -70,6 +75,12 @@ class cityscape(data.Dataset):
 
         return img, target
 
+    def get_img_name(self, index):
+        return os.path.basename(os.path.splitext(self.data[index])[0])
+
+    def get_img_path(self, index):
+        return self.data[index]
+        
     def __len__(self):
         return len(self.data)
 
@@ -112,7 +123,7 @@ class cityscape(data.Dataset):
         segimg = self.trainId2color[labelmap].astype(np.uint8)
                     
         return segimg
-        
+   
     def get_class_weights(self, balance=False):
         weights = torch.FloatTensor(self.num_cats).fill_(1.0)
 
@@ -142,9 +153,67 @@ class cityscape(data.Dataset):
         weights[0] = 0.0 # The first class is for un labelled areas and should be ignored
 
         return weights
+
+
+class segDataLoader():
+    def __init__(self, dataset, opt, is_eval_mode):
+        # TODO list:
+        # 1) properly set the mean and the std val
+        # 2) set proposerly the number of workers
+    
+        self.dataset = dataset
+        self.opt = opt
+        self.is_eval_mode = is_eval_mode
+        self.epoch_size = opt['epoch_size'] if ('epoch_size' in opt) else len(dataset)
         
-# TODO LIST:
-# 1) Return also the image name
-# 3) compute accuracy (here?)
-# 4) compute mean accuracy (here?)
-# 5) compute mean IoU (here?)
+        transform_img = tnt.transform.compose([
+            lambda x: x.transpose(2,0,1).astype(np.float32),
+            torchvision.transforms.ToTensor(),
+            torchvision.transforms.Normalize(mean = [ 0.485, 0.456, 0.406 ],
+                                             std = [ 0.229, 0.224, 0.225 ]),
+        ])
+
+        transform_target = tnt.transform.compose([
+            lambda x: x.astype(np.float32),
+            torch.from_numpy,
+            lambda x: x.contiguous(),
+            lambda x: x.view(1,x.size(0), x.size(1)),
+        ])
+        
+        interp_img = cv2.INTER_LINEAR
+        interp_target = cv2.INTER_NEAREST
+        if self.is_eval_mode:
+            target_scale = opt['target_scale'] if ('target_scale' in opt) else 1.0
+            self.transform_fun = tnt.transform.compose([
+                utils.ScaleSep(scale_img=opt['scale'], scale_target=target_scale, interp_img=interp_img, interp_target=interp_target),                
+                utils.ImgTargetTransform(img_transform=transform_img,target_transform=transform_target),
+            ])  
+            self.batch_size = 1
+            self.num_workers = 1
+        else:
+            self.transform_fun = tnt.transform.compose([
+                utils.RandomScale(min_scale=opt['max_scale'], max_scale=opt['min_scale'], interp_img=interp_img, interp_target=interp_target),
+                utils.RandomCrop(crop_width=opt['crop_width'], crop_height=opt['crop_height']),
+                utils.RandomFlip(),
+                utils.ImgTargetTransform(img_transform=transform_img,target_transform=transform_target),
+            ])
+            self.batch_size = opt['batch_size']
+            self.num_workers = opt['num_workers']
+            
+    def get_iterator(self, rand_seed=None):
+        def load_fun_(idx):
+            dataset_idx = idx % len(self.dataset)
+            img, target = self.dataset[dataset_idx]
+            return img, target, dataset_idx
+        
+        # TODO: set rand_seed in shuffling
+        list_dataset  = tnt.dataset.ListDataset(elem_list=range(self.epoch_size), load=load_fun_)
+        trans_dataset = tnt.dataset.TransformDataset(list_dataset, self.transform_fun)
+        data_loader   = trans_dataset.parallel(batch_size=self.batch_size, num_workers=self.num_workers, shuffle=self.is_eval_mode)
+        return data_loader
+    
+    def __call__(self, rand_seed=None):
+        return self.get_iterator(rand_seed)
+        
+    def __len__(self):
+        return self.epoch_size / self.batch_size
