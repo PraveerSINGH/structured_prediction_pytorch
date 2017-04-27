@@ -9,7 +9,7 @@ import argparse
 import os
 import imp
 import algorithms as alg
-import datasets
+import dataloaders
 
 parser = argparse.ArgumentParser()
 parser.add_argument('--exp',  default='segResNet50RefineNet',  help='config file with parameters of the experiment')
@@ -39,14 +39,17 @@ data_test_opt  = opt['data_test_opt']
 data_train_opt['num_workers'] = args_opt.num_workers
 data_test_opt['num_workers']  = 1
 
-dataset_test = getattr(datasets,data_test_opt['dataset'])(data_test_opt['split'])
-data_loader_test  = alg.segDataLoader(dataset=dataset_test,  opt=data_test_opt,  is_eval_mode=True) 
+dataset_test = getattr(dataloaders,data_test_opt['dataset'])(data_test_opt['split'])
+data_loader_test  = dataloaders.segDataLoader(dataset=dataset_test,  opt=data_test_opt,  is_eval_mode=True) 
 
-dataset_train = getattr(datasets,data_train_opt['dataset'])(data_train_opt['split']) 
-data_loader_train = alg.segDataLoader(dataset=dataset_train, opt=data_train_opt, is_eval_mode=False)   
+dataset_train = getattr(dataloaders,data_train_opt['dataset'])(data_train_opt['split']) 
+data_loader_train = dataloaders.segDataLoader(dataset=dataset_train, opt=data_train_opt, is_eval_mode=False)   
 
 # This is not right place for this code.
 opt['criterions']['net']['opt'] = {'weight': dataset_train.get_class_weights(balance=opt['balance_class_weights'])}  
+
+import pdb
+pdb.set_trace()
 
 if not ('algorithm_type' in opt):
     opt['algorithm_type'] = 'segmentation'
