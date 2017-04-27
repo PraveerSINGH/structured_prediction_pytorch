@@ -7,6 +7,7 @@ Created on Mon Mar 27 20:53:10 2017
 from __future__ import division
 import random
 import numpy as np
+import numbers
 import cv2
 
 def img_scale(img, scale, interpolation):
@@ -64,6 +65,64 @@ def sample_crop(sample, crop_loc):
     
     return (img, target) + sample[2:]
     
+def pad_data(inp, padVec, borderType, borderValue):
+    res = cv2.copyMakeBorder(inp,padVec[0],padVec[1],padVec[2],padVec[3],
+                         borderType=borderType,
+                         value=borderValue)
+    return res[:, :, np.newaxis] if np.ndim(res) == 2 else res
+    
+class Pad(object):
+    """Pads the given np.ndarray on all sides with the given "pad" value."""
+
+    def __init__(self, padding, borderType=cv2.BORDER_CONSTANT, borderValue=0):
+        assert isinstance(padding, numbers.Number)
+        self.padding = padding
+        self.borderType = borderType
+        self.borderValue = borderValue
+
+    def __call__(self, sample):
+        if self.padding == 0:
+            return sample
+        img, target = sample[:2]            
+        p = self.padding
+        padVec = [p, p, p, p]
+        
+        img = pad_data(img, padVec, self.borderType, self.borderValue)
+        target = pad_data(target, padVec, self.borderType, self.borderValue)
+                                 
+        return (img, target) + sample[2:]
+
+class PadMult(object):
+    """Pads the given np.ndarray on all sides with the given "pad" value."""
+
+    def __init__(self, mult, borderType=cv2.BORDER_CONSTANT, borderValue=0):
+        assert isinstance(mult, numbers.Number)
+        self.mult = mult
+        self.borderType = borderType
+        self.borderValue = borderValue
+
+    def __call__(self, sample):
+        if self.mult == 1: 
+            return sample
+            
+        img, target = sample[:2]            
+        assert(isinstance(img,np.ndarray))
+        assert(isinstance(img,np.ndarray))
+        assert(img.shape[1] == target.shape[1])
+        assert(img.shape[0] == target.shape[0])
+        width, height = img.shape[1], img.shape[0]
+        
+        comp_pad = lambda x, m: (m - x % m) % m
+        
+        pad_right  = comp_pad(width, self.mult)
+        pad_bottom = comp_pad(height, self.mult)
+       
+        padVec = [0, pad_bottom, 0, pad_right]
+        
+        img = pad_data(img, padVec, self.borderType, self.borderValue)
+        target = pad_data(target, padVec, self.borderType, self.borderValue)
+                                 
+        return (img, target) + sample[2:]    
  
 class RandomFlip(object):
     def __call__(self, sample):

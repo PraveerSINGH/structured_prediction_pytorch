@@ -10,6 +10,9 @@ import torch.utils.data as data
 import cv2
 
 from tqdm import tqdm
+import torchvision
+import utils
+import torchnet as tnt
 
 
 from PIL import Image
@@ -497,11 +500,120 @@ class stereoDataset(data.Dataset):
     def __len__(self):
         return len(self.datalist)
         
+    def compNormParams(self):
+        inpMean = [0.0 for i in xrange(4)]
+        inpStd  = [0.0 for i in xrange(4)] 
         
-"""        
-stereoDataset = stereoDataset(dataset=('synthetic_kitti2015_filtered',), split=('train',), root='../datasets')        
-       
+        num_elems = self.__len__()
+        for i in tqdm(xrange(num_elems)):   
+            input, target = self.__getitem__(i)          
+            assert(len(input.shape) == 3)
+            assert(input.shape[2] == 4)
+            
+            for j in xrange(4):
+                channel = input[:,:,j]
+                mu_val, std_val = channel.mean(), channel.std()
+                inpMean[j] += mu_val
+                inpStd[j] += std_val
+                
+        for i in xrange(4): 
+            inpMean[i] /= num_elems
+            inpStd[i]  /= num_elems
+        
+        return inpMean, inpStd
 
+class StereoDataTransform(object):
+    def __init__(self, img_transform, target_transform):
+        self.img_transform = img_transform
+        self.target_transform = target_transform    
+        
+    def __call__(self, sample):
+        img, target = sample[:2]
+        if self.img_transform != None:
+            img = self.img_transform(img)
+
+        if self.target_transform != None:
+            target = self.target_transform(target)   
+    
+        return (img, target) + sample[2:]       
+       
+class stereoDataLoader():
+    def __init__(self, dataset, opt, is_eval_mode):
+        # TODO list:
+        # 1) (optional) Image-wise normalization
+        # 2) (optional) Do padding after the normalization
+        # 3) return valid gt map
+        # 4) (optional) add chromatic augmentation
+    
+        self.dataset = dataset
+        self.opt = opt
+        self.is_eval_mode = is_eval_mode
+        self.epoch_size = opt['epoch_size'] if ('epoch_size' in opt) else len(dataset)
+        
+        inpMean = opt['InputNormParams']['mean']
+        inpStd  = opt['InputNormParams']['std']
+        
+        # add adapth the relevant code for preprocessing the X and Y inputs            
+        transform_img = tnt.transform.compose([
+            lambda x: x.transpose(2,0,1).astype(np.float32),
+            lambda x: torch.from_numpy(x),
+            torchvision.transforms.Normalize(mean=inpMean, std=inpStd),
+        ])
+
+        transform_target = tnt.transform.compose([
+            lambda x: x.astype(np.float32),
+            lambda x: torch.from_numpy(x).contiguous(),
+            lambda x: x.view(1,x.size(0), x.size(1)),
+            torchvision.transforms.Normalize(mean=inpMean[-1], std=inpStd[-1]),
+        ])
+        
+        if self.is_eval_mode:
+            pad_mult = opt['pad_mult'] if ('pad_mult' in opt) else 1            
+            self.transform_fun = tnt.transform.compose([
+                utils.PadMult(pad_mult, borderType=cv2.BORDER_CONSTANT, borderValue=0),
+                utils.ImgTargetTransform(img_transform=transform_img,target_transform=transform_target),
+            ])  
+            self.batch_size = 1
+            self.num_workers = 1
+        else:
+            self.transform_fun = tnt.transform.compose([
+                utils.RandomCrop(crop_width=opt['crop_width'], crop_height=opt['crop_height']),
+                utils.RandomFlip(),
+                utils.ImgTargetTransform(img_transform=transform_img,target_transform=transform_target),
+            ])
+            self.batch_size = opt['batch_size']
+            self.num_workers = opt['num_workers']
+            
+    def get_iterator(self, rand_seed=None):
+        def load_fun_(idx):
+            dataset_idx = idx % len(self.dataset)
+            img, target = self.dataset[dataset_idx]
+            return img, target, dataset_idx
+        
+        # TODO: set rand_seed in shuffling
+        list_dataset  = tnt.dataset.ListDataset(elem_list=range(self.epoch_size), load=load_fun_)
+        trans_dataset = tnt.dataset.TransformDataset(list_dataset, self.transform_fun)
+        data_loader   = trans_dataset.parallel(batch_size=self.batch_size, num_workers=self.num_workers, shuffle=self.is_eval_mode)
+        return data_loader
+    
+    def __call__(self, rand_seed=None):
+        return self.get_iterator(rand_seed)
+        
+    def __len__(self):
+        return self.epoch_size / self.batch_size   
+        
+        
+"""
+import dataloaders       
+stereoDataset = dataloaders.stereoDataset(dataset=('synthetic_kitti2015_filtered',), split=('train',), root='./datasets')        
+   
+inpMean, inpStd = stereoDataset.compNormParams()  
+print(inpMean)
+>>> [97.793416570332795, 112.6999583449182, 116.06946033458597, 47.532684231861964]
+print(inpStd)
+>>> [44.981053922607316, 44.222026293735567, 51.843150305457598, 41.333126377815233]
+"""
+"""
 from matplotlib import pyplot as plt
 img, target = stereoDataset[-1]
 plt.imshow(img[:,:,:3].astype(np.uint8))        
