@@ -87,7 +87,7 @@ class segmentation(algorithm):
             
             # forward through the network
             var_prediction = network(var_input)
-            var_prediction = resize_preds_as_targets(var_prediction, var_target)
+            var_prediction = self.upsample_preds_as_targets(var_prediction, var_target)
             var_loss       = criterion(var_prediction, var_target)
 
             resLoss = var_loss.data.cpu().squeeze()[0]
@@ -166,4 +166,7 @@ class segmentation(algorithm):
             resConfMeter = tnt.meter.ConfusionMeter(num_cats, normalized=False)
             resConfMeter.add(torch.from_numpy(predictions), torch.from_numpy(groundtruth))
             
-            return resConfMeter            
+            return resConfMeter
+
+        def upsample_preds_as_targets(self, preds, target):
+            return resize_preds_as_targets(preds, target)
