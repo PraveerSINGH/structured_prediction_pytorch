@@ -168,7 +168,7 @@ class segDataLoader():
         
         transform_img = tnt.transform.compose([
             lambda x: x.transpose(2,0,1).astype(np.float32),
-            torchvision.transforms.ToTensor(),
+            lambda x: torch.from_numpy(x).div_(255.0),
             torchvision.transforms.Normalize(mean = [ 0.485, 0.456, 0.406 ],
                                              std = [ 0.229, 0.224, 0.225 ]),
         ])
@@ -207,9 +207,13 @@ class segDataLoader():
             return img, target, dataset_idx
         
         # TODO: set rand_seed in shuffling
-        list_dataset  = tnt.dataset.ListDataset(elem_list=range(self.epoch_size), load=load_fun_)
-        trans_dataset = tnt.dataset.TransformDataset(list_dataset, self.transform_fun)
-        data_loader   = trans_dataset.parallel(batch_size=self.batch_size, num_workers=self.num_workers, shuffle=self.is_eval_mode)
+        tnt_dataset = tnt.dataset.ListDataset(elem_list=range(self.epoch_size), load=load_fun_)
+        tnt_dataset = tnt.dataset.TransformDataset(tnt_dataset, self.transform_fun)
+        if (not self.is_eval_mode):
+            tnt_dataset = tnt.dataset.ShuffleDataset(tnt_dataset)
+            tnt_dataset.resample(rand_seed)
+            
+        data_loader = tnt_dataset.parallel(batch_size=self.batch_size, num_workers=self.num_workers, shuffle=False)
         return data_loader
     
     def __call__(self, rand_seed=None):
