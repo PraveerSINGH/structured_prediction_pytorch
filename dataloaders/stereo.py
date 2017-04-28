@@ -530,11 +530,9 @@ class StereoDataTransform(object):
     def __call__(self, sample):
         img, target = sample[:2]
         
-        img = img.transpose(2,0,1).astype(np.float32)
-        img = torch.from_numpy(img)
+        img = torch.from_numpy(img.transpose(2,0,1).astype(np.float32))
        
-        target = target.astype(np.float32)
-        target = target.from_numpy(target).contiguous()
+        target = torch.from_numpy(target.astype(np.float32)).contiguous()
         target = target.view(1, target.size(0), target.size(1))
 
         valid = target.gt(0.0).float()        
@@ -552,24 +550,25 @@ class stereoDataLoader():
         # TODO list:
         # 1) (optional) Image-wise normalization
         # 2) (optional) Do padding after the normalization
-        # 3) return valid gt map
-        # 4) (optional) add chromatic augmentation
+        # 3) (optional) add chromatic augmentation
     
         self.dataset = dataset
         self.opt = opt
         self.is_eval_mode = is_eval_mode
         self.epoch_size = opt['epoch_size'] if ('epoch_size' in opt) else len(dataset)
         
-        inpMean = opt['InputNormParams']['mean']
-        inpStd  = opt['InputNormParams']['std']
+        #inpMean = opt['InputNormParams']['mean']
+        #inpStd  = opt['InputNormParams']['std']
         
+        inpMean = [0, 0, 0, 0]
+        inpStd  = [1, 1, 1, 1]
         # add adapth the relevant code for preprocessing the X and Y inputs            
         transform_img = tnt.transform.compose([
             torchvision.transforms.Normalize(mean=inpMean, std=inpStd),
         ])
 
         transform_target = tnt.transform.compose([
-            torchvision.transforms.Normalize(mean=inpMean[-1], std=inpStd[-1]),
+            torchvision.transforms.Normalize(mean=inpMean[-1:], std=inpStd[-1:]),
         ])
         
         if self.is_eval_mode:
@@ -596,9 +595,13 @@ class stereoDataLoader():
             return img, target, dataset_idx
         
         # TODO: set rand_seed in shuffling
-        list_dataset  = tnt.dataset.ListDataset(elem_list=range(self.epoch_size), load=load_fun_)
-        trans_dataset = tnt.dataset.TransformDataset(list_dataset, self.transform_fun)
-        data_loader   = trans_dataset.parallel(batch_size=self.batch_size, num_workers=self.num_workers, shuffle=self.is_eval_mode)
+        tnt_dataset = tnt.dataset.ListDataset(elem_list=range(self.epoch_size), load=load_fun_)
+        tnt_dataset = tnt.dataset.TransformDataset(tnt_dataset, self.transform_fun)
+        if (not self.is_eval_mode):
+            tnt_dataset = tnt.dataset.ShuffleDataset(tnt_dataset)
+            tnt_dataset.resample(rand_seed)
+            
+        data_loader = tnt_dataset.parallel(batch_size=self.batch_size, num_workers=self.num_workers, shuffle=False)
         return data_loader
     
     def __call__(self, rand_seed=None):
@@ -611,7 +614,22 @@ class stereoDataLoader():
 """
 import dataloaders       
 stereoDataset = dataloaders.stereoDataset(dataset=('synthetic_kitti2015_filtered',), split=('train',), root='./datasets')        
-   
+opt = {}
+opt['pad_mult'] = 64
+opt['crop_width'] = 256
+opt['crop_height'] = 256
+opt['batch_size'] = 24
+opt['num_workers'] = 4
+
+data_loader = dataloaders.stereoDataLoader(stereoDataset, opt, is_eval_mode=True)  
+b = []
+for idx, batch in enumerate(data_loader(1)):
+    print(idx)  
+    b = batch
+    break    
+"""
+
+"""
 inpMean, inpStd = stereoDataset.compNormParams()  
 print(inpMean)
 >>> [97.793416570332795, 112.6999583449182, 116.06946033458597, 47.532684231861964]
