@@ -233,20 +233,28 @@ class algorithm():
         pass
     
     def evaluate(self, data_loader):
+        if not isinstance(data_loader, (list, tuple)):
+            data_loader = (data_loader,)
+            
         self.logger.info('Evaluating: %s' % os.path.basename(self.exp_dir))
-        self.dataset_eval = data_loader.dataset
         
-        for key, network in self.networks.items():
-            network.eval()
+        eval_stats_all = {}
+        for dloader in data_loader:
+            self.dataset_eval = dloader.dataset
+            self.logger.info('==> Dataset: %s [%d images]' % (dloader.dataset.name, len(dloader)))
+        
+            for key, network in self.networks.items():
+                network.eval()
+                
+            eval_stats = utils.DAverageMeter()                
+            for idx, batch in enumerate(tqdm(dloader())):
+                eval_stats_this = self.inference(batch)
+                eval_stats.update(eval_stats_this)
             
-        eval_stats = utils.DAverageMeter()
-        for idx, batch in enumerate(tqdm(data_loader())):
-            eval_stats_this = self.inference(batch)
-            eval_stats.update(eval_stats_this)
-            
-        self.logger.info('==> Results [%d images]: %s' % (len(data_loader), eval_stats.average()))
+            self.logger.info('==> Results: %s' % eval_stats.average())
+            eval_stats_all[self.dataset_eval.name] = eval_stats.average()
 
-        return eval_stats.average()
+        return eval_stats_all
 
     def inference(self, batch):
         # IT MUST BE IMPLEMENTED BY THE CLASSES THAT INHERIT THIS ONE        

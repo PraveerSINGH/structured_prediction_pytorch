@@ -43,6 +43,7 @@ class cityscape(data.Dataset):
         self.transform = transform
         self.target_transform = target_transform
         self.split = split  # 'train', 'val', 'test', or 'trainval'
+        self.name = 'cityscape_'+split
         assert(split == 'train' or split == 'val' or split == 'test' or split == 'trainval')
 
         if self.split == 'trainval':

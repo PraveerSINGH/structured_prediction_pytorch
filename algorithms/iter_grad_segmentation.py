@@ -327,7 +327,6 @@ class iter_grad_segmentation(algorithm):
                 var_Egt  = torch.autograd.Variable(Egt_data,  volatile=True)
                 var_Ewht = torch.autograd.Variable(Ewht_data, volatile=True)
                 var_det_loss[t] = criterion_det(var_detE[t], var_Egt, var_Ewht) / num_iters
-                
                 record['det t:'+str(t)] = self.computeDetectorResults(var_detE[t].data, Egt_data, Ewht_data)
                
             record['losses'] = self.createInferenceLossRecord(var_det_loss, var_seg_loss, var_eng_loss)   

@@ -459,7 +459,7 @@ def stereo_load_datalist(root_directory, dataset, split):
         elif dataset_lowercase == 'synthetic_kitti2015_filtered':
             return load_Synthetic_Kitt2015_filtered(root_directory)[split]
         else:
-            raise Exception('Not recognized dataset' % (dataset))        
+            raise Exception('Not recognized dataset %s' % (dataset))        
             
 
 class stereoDataset(data.Dataset):
@@ -468,6 +468,7 @@ class stereoDataset(data.Dataset):
         self.transform = transform
         self.target_transform = target_transform
         self.split = split  # 'train', 'val', 'test', or 'trainval'
+        self.name  = "{}_{}".format(dataset,split)
         print("Datalist Loading of dataset: {} & split: {}".format(dataset,split))
         self.datalist = stereo_load_datalist(root, dataset, split)
         print("Number of datums: {}".format(len(self.datalist)))
@@ -555,14 +556,11 @@ class stereoDataLoader():
         self.dataset = dataset
         self.opt = opt
         self.is_eval_mode = is_eval_mode
-        self.epoch_size = opt['epoch_size'] if ('epoch_size' in opt) else len(dataset)
+        self.epoch_size = opt['epoch_size'] if (('epoch_size' in opt) and (opt['epoch_size'] is not None)) else len(dataset)
         
-        #inpMean = opt['InputNormParams']['mean']
-        #inpStd  = opt['InputNormParams']['std']
+        inpMean = opt['InputNormParams']['mean']
+        inpStd  = opt['InputNormParams']['std']
         
-        inpMean = [0, 0, 0, 0]
-        inpStd  = [1, 1, 1, 1]
-        # add adapth the relevant code for preprocessing the X and Y inputs            
         transform_img = tnt.transform.compose([
             torchvision.transforms.Normalize(mean=inpMean, std=inpStd),
         ])
@@ -613,13 +611,21 @@ class stereoDataLoader():
         
 """
 import dataloaders       
-stereoDataset = dataloaders.stereoDataset(dataset=('synthetic_kitti2015_filtered',), split=('train',), root='./datasets')        
+stereoDataset = dataloaders.stereoDataset(dataset=('flying3d',), split=('test',), root='./datasets')        
+
+InputNormParams = {
+    'mean': [97.793416570332795, 112.6999583449182, 116.06946033458597, 47.532684231861964],
+    'std':  [44.981053922607316, 44.222026293735567, 51.843150305457598, 41.333126377815233],
+}
+
 opt = {}
 opt['pad_mult'] = 64
 opt['crop_width'] = 256
 opt['crop_height'] = 256
 opt['batch_size'] = 24
 opt['num_workers'] = 4
+opt['epoch_size']      = 50
+opt['InputNormParams'] = InputNormParams
 
 data_loader = dataloaders.stereoDataLoader(stereoDataset, opt, is_eval_mode=True)  
 b = []

@@ -57,6 +57,24 @@ class BCEWeightedLoss(nn.Module):
         loss /= div
         return loss
         
+class L1WeightedLoss(nn.Module):
+    def __init__(self):
+        super(L1WeightedLoss, self).__init__()
+    
+    def forward(self, X, Y, W): 
+        assert(Y.requires_grad==False)
+        assert(W.requires_grad==False)
+
+        diffs = torch.abs(X-Y)
+        loss  = torch.dot(diffs.view(-1), W.view(-1)) 
+        
+        epsilon = 1e-10
+        div  = epsilon + W.data.sum()
+        assert(div > 0)
+        
+        loss /= div
+        return loss        
+        
 class BCEDetAuxLoss(nn.Module):
     def __init__(self):
         super(BCEDetAuxLoss, self).__init__()
@@ -66,7 +84,7 @@ class BCEDetAuxLoss(nn.Module):
         loss_per_element = torch.log(1-X+epsilon)
         loss = loss_per_element.mean()
         loss *= -1
-    return loss
+        return loss
 
 class EngValueLoss(nn.Module):
     def __init__(self):
@@ -92,6 +110,10 @@ def create_var_Yest_4det(var_Yest_4iter, dE_dY_data, is_train=False):
 class iter_grad_regression(algorithm):
     def __init__(self, opt):
         algorithm.__init__(self, opt)
+        self.yNormParams = (
+            self.opt['InputNormParams']['mean'][3:], 
+            self.opt['InputNormParams']['std'][3:]
+        )
                   
     def init_tensors(self):
         self.tensors = {}
@@ -108,12 +130,13 @@ class iter_grad_regression(algorithm):
         self.tensors['Eweight']      = torch.FloatTensor()
         
         # auxiliary
-        self.tensors['Egt_long']     = torch.LongTensor()
         self.tensors['mask']         = torch.ByteTensor()
             
     def load_criterion(self, ctype, copt):
         if ctype == 'BCEWeightedLoss':
             return BCEWeightedLoss()
+        elif ctype == 'L1WeightedLoss':
+            return L1WeightedLoss()
         elif ctype == 'BCEDetAuxLoss':
             return BCEDetAuxLoss()
         elif ctype == 'EngValueLoss':
@@ -142,17 +165,81 @@ class iter_grad_regression(algorithm):
             
     def inference(self, batch):
         pass
-    """
-        self.datum_id = self.set_tensors(batch);
+        self.datum_id = self.set_tensors(batch)
         curr_epoch = self.curr_epoch
         LUT = self.opt['LUT_num_iters']
         
         num_iters = next((num_iters for (max_epoch, num_iters) in LUT if max_epoch>curr_epoch), LUT[-1][1])
-        num_iters = 2
-        
-        #losses = self.inference_(num_iters)
+        #num_iters = 2        
+        losses = self.inference_(num_iters)
         return losses      
-    """   
+
+    def inference_(self, num_iters):
+        record = {}
+        opt = self.opt
+        eng_lambda = opt['eng_lambda']
+        
+        InputX_data = self.tensors['inputX']
+        Target_data = self.tensors['target']
+        Valid_data  = self.tensors['valid']
+        Yest_data   = [self.tensors['Yest_t'+str(t)]  for t in xrange(num_iters)]        
+        dE_dY_data  = [self.tensors['dE_dY_t'+str(t)] for t in xrange(num_iters)]
+
+        network_det    = self.networks['net_det']
+        network_iter   = self.networks['net_iter']
+
+        criterion_iter = self.criterions['net']
+        criterion_det  = self.criterions['det']
+        
+        network_iter.eval()
+        network_det.eval()      
+        
+        var_detEsigm   = [None for t in xrange(num_iters)]   
+        var_Yest_4det  = [None for t in xrange(num_iters)]
+        var_Yest_4iter = [None for t in xrange(num_iters)]
+        var_reg_loss   = [None for t in xrange(num_iters)]
+        var_dE_dYest   = [None for t in xrange(num_iters)]
+        var_eng_loss   = [None for t in xrange(num_iters)]
+        var_det_loss   = [None for t in xrange(num_iters)]        
+    
+        var_X             = torch.autograd.Variable(InputX_data,  volatile=True)
+        var_X_4det        = torch.autograd.Variable(InputX_data)
+        var_Yvalid        = torch.autograd.Variable(Valid_data,   volatile=True)
+        var_Ygt           = torch.autograd.Variable(Target_data,  volatile=True)
+        var_Yest_4iter[0] = torch.autograd.Variable(Yest_data[0], volatile=True)
+        
+        for t in xrange(0, num_iters):
+            var_reg_loss[t] = criterion_iter(var_Yest_4iter[t], var_Ygt, var_Yvalid)                    
+            
+            var_Yest_4det, hook = create_var_Yest_4det(var_Yest_4iter[t], dE_dY_data[t], is_train=False)
+            var_detEsigm[t], var_detEraw = network_det(var_X_4det, var_Yest_4det, retPriorSigm=True)
+            var_eng_loss[t] = eng_lambda * self.criterion_eng(var_detEsigm[t], var_detEraw)   
+            var_eng_loss[t].backward()
+            hook.remove()
+                        
+            Egt_data, Ewht_data = self.getErrorDetectorTargets(var_Yest_4det.data, var_Ygt.data, var_Yvalid.data)
+            var_Egt   = torch.autograd.Variable(Egt_data,  volatile=True)
+            var_Ewht  = torch.autograd.Variable(Ewht_data, volatile=True)
+            var_det_loss[t] = criterion_det(var_detEsigm[t], var_Egt, var_Ewht)
+  
+
+            record['det t:'+str(t)] = self.computeDetectorResults(var_detEsigm[t].data, Egt_data, Ewht_data)
+            record['reg t:'+str(t)] = self.computeStereoResults(var_Yest_4det.data, var_Ygt.data, var_Yvalid.data)
+            
+            # import pdb
+            # pdb.set_trace()
+            # var_dYest    = torch.autograd.Variable(dE_dY_data[t], volatile=True) 
+            # var_YestNext = var_Yest_4iter[t]-0.1*var_dYest
+            # print(criterion_iter(var_YestNext, var_Ygt, var_Yvalid))
+            # var_detEsigm_out, var_detEraw = network_det(var_X_4det, var_YestNext, retPriorSigm=True)
+            # print(self.criterion_eng(var_detEsigm_out, var_detEraw))
+            if (t+1) < num_iters: # next iteration prediction
+                var_dE_dYest        = torch.autograd.Variable(dE_dY_data[t].sign_(), volatile=True) 
+                var_Yest_4iter[t+1] = network_iter(var_X, var_Yest_4iter[t], var_detEsigm[t].detach(), var_dE_dYest) 
+                         
+        record['losses'] = self.createInferenceLossRecord(var_det_loss, var_reg_loss, var_eng_loss)    
+         
+        return record        
 
     def train_step(self, batch):
         self.set_tensors(batch);
@@ -166,7 +253,7 @@ class iter_grad_regression(algorithm):
         if num_iters > 1:
             losses_iterator = self.trainIterator(num_iters)
             losses.update(losses_iterator)
-
+        
         losses_detector = self.trainDetector(num_iters)
         losses.update(losses_detector)
         return losses.average()
@@ -206,7 +293,7 @@ class iter_grad_regression(algorithm):
     
         losses = utils.DAverageMeter()
 
-        for X, Yest, Ygt, Yvalid, Yest in zip(InputX_chunks, Yest_chunks, Target_chunks, Valid_chunks):
+        for X, Yest, Ygt, Yvalid in zip(InputX_chunks, Yest_chunks, Target_chunks, Valid_chunks):
             var_X             = torch.autograd.Variable(X)
             var_Yvalid        = torch.autograd.Variable(Yvalid, requires_grad=False)
             var_Ygt           = torch.autograd.Variable(Ygt,    requires_grad=False)
@@ -281,7 +368,7 @@ class iter_grad_regression(algorithm):
 
             det_loss = []
             for t in xrange(num_iters): # or alternatively sample one t between 0 and num_iters - 1
-                Egt, Ewht = self.getErrorDetectorTargets(Yest[t], Ygt)
+                Egt, Ewht = self.getErrorDetectorTargets(Yest[t], Ygt, Yvalid)
                 
                 var_X    = torch.autograd.Variable(X)
                 var_Yest = torch.autograd.Variable(Yest[t])
@@ -308,11 +395,10 @@ class iter_grad_regression(algorithm):
         return loss_record
         
     def createInferenceLossRecord(self, var_det_loss, var_reg_loss, var_eng_loss):
-        num_iters = len(var_reg_loss)
         assert(len(var_reg_loss) == len(var_det_loss))
         assert(len(var_eng_loss) == len(var_det_loss))
         
-        det_loss = [round(var.data.squeeze()[0] * num_iters,4)  for var in var_det_loss]
+        det_loss = [round(var.data.squeeze()[0],4)  for var in var_det_loss]
         reg_loss = [round(var.data.squeeze()[0],4) for var in var_reg_loss]
         eng_loss = [round(var.data.squeeze()[0],4) for var in var_eng_loss]
         
@@ -337,46 +423,85 @@ class iter_grad_regression(algorithm):
         
         record = {'recall':recall, 'precision':precision, 'AUC':0, 'accuracy': accuracy}
         
-        return record              
+        return record             
         
-    def getErrorDetectorTargets(self, Yest, Ygt, Yvalid):
 
-        #assert(Ygt.size(0)==Yest.size(1))
-        Ylabels = self.tensors['Ylabels']
-        Yconf   = self.tensors['Yconf']
+    def computeStereoResults(self, Yest, Ygt, Yvalid):
         Egt     = self.tensors['Egt']
-        Egt_long= self.tensors['Egt_long']
         Eweight = self.tensors['Eweight']
-        mask    = self.tensors['mask']
         
         tau     = self.opt['tau']
-        
+        ymu, ystd = self.yNormParams   
+        assert(len(ystd) == len(ymu))
+        assert(len(ymu) == 1)
+
+        if len(ymu) == 1:
+            ymu = ymu[0]
+            ystd = ystd[0]
+            
         var_Yest   = torch.autograd.Variable(Yest,   volatile=True)
         var_Ygt    = torch.autograd.Variable(Ygt,    volatile=True)    
         var_Yvalid = torch.autograd.Variable(Yvalid, volatile=True)
         
-        var_Ygt    = var_Ygt * ystd + ymu
-        var_Yest   = var_Yest * ystd + ymu
+        var_Ygt    = (var_Ygt * ystd) + ymu
+        var_Yest   = (var_Yest * ystd) + ymu
 
-        var_Ydiff  = torch.abs(Yest-Ygt)
-        var_Egt    = var_Yvalid.gt(0) + var_Ydiff.gt(tau[0]) + var_Ydiff.div(var_Ygt).gt(tau[1]) == 3
+        var_Ydiff  = torch.abs(var_Yest-var_Ygt)
 
-        # Create ground truth error detection map (tensor Egt)
-        Yconf, Ylabels = torch.max(Yest, 1, out=(Yconf, Ylabels))
-        Egt_long = torch.ne(Ylabels, Ygt, out=Egt_long)                    
-        Egt.resize_(Egt_long.size()).copy_(Egt_long)
-                    
-        # Find valid pixels and store it to tensor Eweight
-        Egt_long = torch.gt(Ygt, 0, out=Egt_long)
-        Eweight.resize_(Egt_long.size()).copy_(Egt_long)
-        Egt.mul_(Eweight) # set to zero the pixels that dont have valid ground truth anotation
+        #results = {}
         
-        Ydiff = torch.abs(Yest-Ygt, out=Ydiff)
-        Egt = torch.gt(Ydiff, tau[0], out=Egt)
-        Egt = torch
+        var_Egt    = (var_Yvalid.gt(0) + var_Ydiff.gt(tau[0]) + var_Ydiff.div(var_Ygt).gt(tau[1])) == 3
+        Egt.resize_(var_Egt.size()).copy_(var_Egt.data)
 
+        Eweight.resize_(var_Yvalid.size()).copy_(var_Yvalid.data)
+        Egt.mul_(Eweight)   
+        
 
+        error_ratio = 100.0 * float(Egt.sum()) / Yvalid.sum()
 
+        Ydiff = var_Ydiff.data
+        Ydiff.mul_(Yvalid)
+        MAE = float(Ydiff.sum()) / Yvalid.sum()
+        
+        
+        results = {'Error[3]':error_ratio, 'MAE': MAE}
+                
+        return results
+        
+    def getErrorDetectorTargets(self, Yest, Ygt, Yvalid):
+        #import pdb
+        #pdb.set_trace()
+
+        Egt     = self.tensors['Egt']
+        Eweight = self.tensors['Eweight']
+        mask    = self.tensors['mask']
+        
+        tau     = self.opt['tau']
+        ymu, ystd = self.yNormParams   
+        assert(len(ystd) == len(ymu))
+        assert(len(ymu) == 1)
+
+        if len(ymu) == 1:
+            ymu = ymu[0]
+            ystd = ystd[0]
+            
+        var_Yest   = torch.autograd.Variable(Yest,   volatile=True)
+        var_Ygt    = torch.autograd.Variable(Ygt,    volatile=True)    
+        var_Yvalid = torch.autograd.Variable(Yvalid, volatile=True)
+        
+        var_Ygt    = (var_Ygt * ystd) + ymu
+        var_Yest   = (var_Yest * ystd) + ymu
+
+        var_Ydiff  = torch.abs(var_Yest-var_Ygt)
+        
+        #import pdb
+        #pdb.set_trace()
+        var_Egt    = (var_Yvalid.gt(0) + var_Ydiff.gt(tau[0]) + var_Ydiff.div(var_Ygt).gt(tau[1])) == 3
+        Egt.resize_(var_Egt.size()).copy_(var_Egt.data)
+
+        Eweight.resize_(var_Yvalid.size()).copy_(var_Yvalid.data)
+        Egt.mul_(Eweight)
+        #pdb.set_trace()
         #pdb.set_trace()
         # Set class weights
         error_det_balance_class_weights = self.opt['balance_det_weights'] if ('balance_det_weights' in self.opt) else 1
@@ -401,9 +526,7 @@ class iter_grad_regression(algorithm):
             Eweight.masked_fill_(mask, wneg)
             
             # remove valid pixels by setting their weight to 0.0
-            Egt_long = torch.gt(Ygt, 0, out=Egt_long)
-            Yconf.copy_(Egt_long)
-            Eweight.mul_(Yconf)
+            Eweight.mul_(var_Yvalid.data)
             
         elif error_det_balance_class_weights == 2:
             num_elems = 2.0 + Eweight.sum()
@@ -421,8 +544,6 @@ class iter_grad_regression(algorithm):
             Eweight.masked_fill_(mask, wneg)
 
             # remove valid pixels by setting their weight to 0.0
-            Egt_long = torch.gt(Ygt, 0, out=Egt_long)
-            Yconf.copy_(Egt_long)
-            Eweight.mul_(Yconf)
+            Eweight.mul_(var_Yvalid.data)
 
         return Egt, Eweight
