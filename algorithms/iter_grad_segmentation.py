@@ -298,14 +298,13 @@ class iter_grad_segmentation(algorithm):
 #                print('Eng(vYi-0.3*sign(vdY)): ', criterion_eng(network_det(var_X, vYn, retPriorSigm=True)[0]).data.squeeze()[0])                
 #                pdb.set_trace()
             
-                dE_dY[t-1].sign_()
-                var_dE_dYest[t-1] = torch.autograd.Variable(dE_dY[t-1], volatile=True) 
-                #var_dE_dYest[t-1] = torch.autograd.Variable(dE_dY[t-1].sign(), volatile=True) 
+                #dE_dY[t-1].sign_()
+                #var_dE_dYest[t-1] = torch.autograd.Variable(dE_dY[t-1], volatile=True) 
+            
+                var_dE_dYest[t-1] = torch.autograd.Variable(dE_dY[t-1].sign(), volatile=True) 
                 var_Yest_4iter[t-1].volatile = True
-                
-                gamma = 0.03                
-                var_Yest_4iter[t] = var_Yest_4iter[t-1] - gamma * var_dE_dYest[t-1]
-                #var_Yest_4iter[t] = network_iter(var_X, var_Yest_4iter[t-1], var_detE[t-1], var_dE_dYest[t-1])
+
+                var_Yest_4iter[t] = network_iter(var_X, var_Yest_4iter[t-1], var_detE[t-1], var_dE_dYest[t-1])
                 var_seg_loss[t]   = criterion_iter(var_Yest_4iter[t], var_Ygt)
                 
                 # forward through the detector network    
@@ -333,8 +332,8 @@ class iter_grad_segmentation(algorithm):
             
             if num_iters > 1:
                 record['seg res'] = self.getEvaluationResults(var_Yest_4iter[-1].data, var_Yest_4iter[0].data, var_Ygt.data)
-                #self.drawResult(var_X.data, var_Yest_4iter[-1].data, var_Yest_4iter[0].data, var_Ygt.data,
-                #                var_detE[0].data, var_detE[-1].data, dE_dY[0])
+                self.drawResult(var_X.data, var_Yest_4iter[-1].data, var_Yest_4iter[0].data, var_Ygt.data,
+                                var_detE[0].data, var_detE[-1].data, dE_dY[0])
 
             return record
         

@@ -46,7 +46,7 @@ opt['tau']             = (3.0, 0.05)
 # Parameters of the algorithm
 networks = {}                       
 net_optim_params = {'optim_type': 'adam', 'lr': 0.0001, 'beta': (0.9, 0.999), 'LUT_lr':[(14, 0.001), (20, 0.0003), (26, 0.0001), (30, 0.00003), (34, 0.00001)]}
-networks['net_iter'] = {'def_file':   'models/stereoMatching/modelDetGradReplace.py', 
+networks['net_iter'] = {'def_file':   'models/stereoMatching/modelDetGradRefine.py', 
                         'pretrained': None,
                         'opt': {'num_Ychannels':1,'num_Xchannels':3, 'numFeats':32, 'numFeatEncMax':256, 'depth': 6}, 
                         'optim_params': net_optim_params}    
@@ -76,6 +76,5 @@ opt['balance_det_weights'] = 2
 
 opt['eng_lambda'] = 0.1
 opt['num_iters'] = 2
-opt['num_cats'] = 20
 
-opt['LUT_num_iters'] = [(2, 1), (32, 2)]
+opt['LUT_num_iters'] = [(2, 1), (34, 2)]
