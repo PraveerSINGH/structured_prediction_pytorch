@@ -10,6 +10,49 @@ import numpy as np
 import numbers
 import cv2
 
+def img_chrom_aug(img, opt):
+    assert len(img.shape) == 3
+    assert img.shape[2] == 3
+    assert isinstance(opt['color_min'],    numbers.Number)
+    assert isinstance(opt['color_max'],    numbers.Number)
+    assert isinstance(opt['gamma_min'],    numbers.Number)
+    assert isinstance(opt['gamma_max'],    numbers.Number)
+    assert isinstance(opt['bri_std'],      numbers.Number)
+    assert isinstance(opt['contrast_min'], numbers.Number)
+    assert isinstance(opt['contrast_max'], numbers.Number)
+
+    color = [np.random.uniform(opt['color_min'], opt['color_max']) for i in range(3)]
+    gamma = np.random.uniform(opt['gamma_min'], opt['gamma_max'])
+    brightness = opt['bri_std'] * np.random.normal()
+    contrast = np.random.uniform(opt['contrast_min'], opt['contrast_max'])
+
+    img /= 255.0
+
+    # color change
+    brightness_coef = img.sum(2)
+    for i in range(3): 
+        img[:,:,i] *= color[i]
+    # compensate for brightness
+    brightness_coef /= (img.sum(2) + 0.01)
+    for i in range(3):
+        img[:,:,i] *= brightness_coef
+        
+    img = np.clip(img, 0.0, 1.0, out=img)  
+     
+    # gamma change
+    img **= gamma
+    # brightness change
+    img += brightness
+    
+    # Contrast change: img = (img - 0.5) * contrast + 0.5 = img*contrast + (0.5 - 0.5*contrast)
+    img *= contrast
+    img += (0.5 - 0.5*contrast)
+    
+    img = np.clip(img, 0.0, 1.0, out=img)       
+    img *= 255.0
+    
+    return img
+
 def img_scale(img, scale, interpolation):
     assert(isinstance(img,np.ndarray))
     width, height = img.shape[1], img.shape[0]
@@ -122,7 +165,50 @@ class PadMult(object):
         img = pad_data(img, padVec, self.borderType, self.borderValue)
         target = pad_data(target, padVec, self.borderType, self.borderValue)
                                  
-        return (img, target) + sample[2:]    
+        return (img, target) + sample[2:]   
+        
+class PadToMinSize(object):
+    """Pads the given np.ndarray on all sides with the given "pad" value."""
+
+    def __init__(self, min_height, min_width, borderType=cv2.BORDER_CONSTANT, borderValue=0):
+        assert isinstance(min_width, numbers.Number)
+        assert isinstance(min_height, numbers.Number)
+        
+        self.min_width   = min_width
+        self.min_height  = min_height
+        self.borderType  = borderType
+        self.borderValue = borderValue
+
+    def __call__(self, sample):
+        
+        if self.min_width == 0 and self.min_height == 0:
+            return sample
+
+        img, target = sample[:2]            
+        assert(isinstance(img,np.ndarray))
+        assert(isinstance(img,np.ndarray))
+        assert(img.shape[1] == target.shape[1])
+        assert(img.shape[0] == target.shape[0])
+        width, height = img.shape[1], img.shape[0]
+        
+        comp_pad = lambda x, minx: int((max(0,minx-x)+1) / 2)     
+        padw = comp_pad(width,  self.min_width)
+        padh = comp_pad(height, self.min_height)
+        if padw > 0 or padh > 0:
+            padVec = [padh, padh, padw, padw]
+            img = pad_data(img, padVec, self.borderType, self.borderValue)
+            target = pad_data(target, padVec, self.borderType, self.borderValue)
+                                 
+        return (img, target) + sample[2:]        
+        
+
+class RandomChromChanges(object):
+    def __init__(self, opt):
+        self.opt = opt
+        
+    def __call__(self, sample):
+        img = img_chrom_aug(sample[0], self.opt)
+        return (img,) + sample[1:]
  
 class RandomFlip(object):
     def __call__(self, sample):

@@ -1,2 +1,2 @@
-from .segmentation import (cityscape, segDataLoader)
+from .segmentation import (cityscape, facadeparsing, segDataLoader)
 from .stereo import (stereoDataset, stereoDataLoader)

@@ -42,8 +42,8 @@ class CrossEntropyLoss2d(nn.Module):
         self.loss = nn.NLLLoss2d(weight=weight, size_average=size_average)
 
     def forward(self, outputs, targets):
-        if len(targets.size()) == 4 and targets.size(0) == 1:
-            targets = targets.view(1, targets.size(2), targets.size(3))
+        if len(targets.size()) == 4:
+            targets = targets.view(-1, targets.size(2), targets.size(3))
         return self.loss(torch.nn.functional.log_softmax(outputs), targets) 
 
 class segmentation(algorithm):
