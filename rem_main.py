@@ -12,7 +12,7 @@ import algorithms as alg
 import dataloaders
 
 parser = argparse.ArgumentParser()
-parser.add_argument('--exp',  default='segResNet50RefineNet',  help='config file with parameters of the experiment')
+parser.add_argument('--exp',  default='remSenResNet50FCN',  help='config file with parameters of the experiment')
 parser.add_argument('--train',       type=int,  default=1,  help='Enables training')
 parser.add_argument('--checkpoint',  type=int,  default=0,     help='checkpoint (epoch id) that will be loaded')
 parser.add_argument('--num_workers', type=int,  default=4,     help='number of data loading workers')
