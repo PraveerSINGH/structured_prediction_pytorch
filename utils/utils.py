@@ -12,6 +12,78 @@ import torch.nn.parallel
 import torch.optim 
 import torchnet as tnt
 
+
+import numbers
+
+class FastConfusionMeter(object):
+    """
+    <a name="ConfusionMeter">
+    #### tnt.ConfusionMeter(@ARGP)
+    @ARGT
+    The `tnt.ConfusionMeter` constructs a confusion matrix for a multi-class
+    classification problems. It does not support multi-label, multi-class problems:
+    for such problems, please use `tnt.MultiLabelConfusionMeter`.
+    At initialization time, the `k` parameter that indicates the number
+    of classes in the classification problem under consideration must be specified.
+    Additionally, an optional parameter `normalized` (default = `false`) may be
+    specified that determines whether or not the confusion matrix is normalized
+    (that is, it contains percentages) or not (that is, it contains counts).
+    The `add(output, target)` method takes as input an NxK tensor `output` that
+    contains the output scores obtained from the model for N examples and K classes,
+    and a corresponding N-tensor or NxK-tensor `target` that provides the targets
+    for the N examples. When `target` is an N-tensor, the targets are assumed to be
+    integer values between 1 and K. When target is an NxK-tensor, the targets are
+    assumed to be provided as one-hot vectors (that is, vectors that contain only
+    zeros and a single one at the location of the target value to be encoded).
+    The `value()` method has no parameters and returns the confusion matrix in a
+    KxK tensor. In the confusion matrix, rows correspond to ground-truth targets and
+    columns correspond to predicted targets.
+    """
+    def __init__(self, k, normalized = False):
+        #super(FastConfusionMeter, self).__init__()
+        self.conf = np.ndarray((k,k), dtype=np.int32)
+        self.normalized = normalized
+        self.reset()
+
+    def reset(self):
+        self.conf.fill(0)
+
+    def add(self, output, target):
+        output = output.cpu().squeeze().numpy()
+        target = target.cpu().squeeze().numpy()
+        
+        if np.ndim(output) == 1:
+            output = output[None]
+            
+        onehot = np.ndim(target) != 1
+        assert output.shape[0] == target.shape[0], \
+                'number of targets and outputs do not match'
+        assert output.shape[1] == self.conf.shape[0], \
+                'number of outputs does not match size of confusion matrix'
+        assert not onehot or target.shape[1] == output.shape[1], \
+                'target should be 1D Tensor or have size of output (one-hot)'
+        if onehot:
+            assert (target >= 0).all() and (target <= 1).all(), \
+                    'in one-hot encoding, target values should be 0 or 1'
+            assert (target.sum(1) == 1).all(), \
+                    'multi-label setting is not supported'
+
+        target = target.argmax(1) if onehot else target
+        pred = output.argmax(1)
+        
+        target    = target.astype(np.int32)
+        pred      = pred.astype(np.int32)
+        conf_this = np.bincount(target * self.conf.shape[0] + pred)
+        conf_this = conf_this.astype(self.conf.dtype).reshape(self.conf.shape)
+        self.conf += conf_this
+
+    def value(self):
+        if self.normalized:
+            conf = self.conf.astype(np.float32)
+            return conf / conf.sum(1).clip(min=1e-12)[:,None]
+        else:
+            return self.conf
+
 def getConfMatrixResults(matrix):
     assert(len(matrix.shape)==2 and matrix.shape[0]==matrix.shape[1])
     
@@ -27,8 +99,13 @@ def getConfMatrixResults(matrix):
     meanAccuracy  = accuracies.sum() / (num_valid + epsilon)
     meanIoU       = IoUs.sum() / (num_valid + epsilon)
     
-    return {'totAccuracy': round(totAccuracy,4), 'meanAccuracy': round(meanAccuracy,4), 'meanIoU': round(meanIoU,4)}
-
+    result = {'totAccuracy': round(totAccuracy,4), 'meanAccuracy': round(meanAccuracy,4), 'meanIoU': round(meanIoU,4)}
+    if num_valid == 2:
+        result['IoUs_bg'] = round(IoUs[0],4)
+        result['IoUs_fg'] = round(IoUs[1],4)
+        
+    return result
+    
 class AverageConfMeter(object):
     def __init__(self):
         self.reset()
@@ -104,7 +181,7 @@ class DAverageMeter(object):
                 if not (key in self.values):
                     self.values[key] = AverageMeter()
                 self.values[key].update(val)
-            elif isinstance(val, tnt.meter.ConfusionMeter):            
+            elif isinstance(val, (tnt.meter.ConfusionMeter,FastConfusionMeter)):            
                 if not (key in self.values):
                     self.values[key] = AverageConfMeter()
                 self.values[key].update(val.value())

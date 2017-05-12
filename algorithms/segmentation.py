@@ -11,11 +11,14 @@ import torch
 import torch.nn as nn
 import torch.nn.parallel
 import torch.optim 
-
+import os
 import torchnet as tnt
 import utils
+import PIL
 
 from . import algorithm
+
+
 
 def resize_preds_as_targets(preds, target):
     target_height, target_width = target.size(2), target.size(3)        
@@ -86,14 +89,20 @@ class segmentation(algorithm):
             criterion = self.criterions['net']  
             
             # forward through the network
+            #import pdb
+            #pdb.set_trace()
             var_prediction = network(var_input)
             var_prediction = self.upsample_preds_as_targets(var_prediction, var_target)
             var_loss       = criterion(var_prediction, var_target)
 
             resLoss = var_loss.data.cpu().squeeze()[0]
             
-            results = {'loss': resLoss, 
-                        'conf': self.getEvaluationResults(var_prediction.data, var_target.data)}
+            #self.drawResult(var_input.data, var_prediction.data, var_target.data)
+            #self.saveResult(var_prediction.data)
+            results = {
+                'loss': resLoss, 
+                'conf': self.getEvaluationResults(var_prediction.data, var_target.data)
+            }
                         
             return results
             
@@ -141,6 +150,52 @@ class segmentation(algorithm):
                 
             return losses.average()
             
+
+        def drawResult(self, input_img, estimation, groundtruth):
+            #import pdb
+            #pdb.set_trace()
+            est_conf, est_labels = torch.max(estimation, 1)
+            
+            est_labels = est_labels.cpu().numpy()
+            groundtruth = groundtruth.cpu().numpy() 
+            
+            #pdb.set_trace()
+            
+            est_img = self.dataset_eval.draw_seg_img(est_labels)
+            gt_img  = self.dataset_eval.draw_seg_img(groundtruth)
+            
+            img_name = self.dataset_eval.get_img_name(self.datum_id[0])
+            input_img, _ = self.dataset_eval[self.datum_id[0]]
+            input_img = input_img.astype(np.uint8)
+            
+            height, width = input_img.shape[0], input_img.shape[1]
+            
+            #pdb.set_trace()
+            est_img = est_img[:height,:width,:]
+            gt_img  = gt_img[:height,:width,:]
+         
+            draw_img = self.dataset_eval.draw_result(input_img, gt_img, est_img)
+
+            #pdb.set_trace()
+            vis_path = os.path.join(self.vis_dir, img_name+'.png')       
+            draw_img.save(vis_path)
+            
+        def saveResult(self, estimation):
+            est_conf, est_labels = torch.max(estimation, 1)
+            est_img = self.dataset_eval.draw_seg_img(est_labels.cpu().numpy())
+            
+            img_name = self.dataset_eval.get_img_name(self.datum_id[0])
+            input_img, _ = self.dataset_eval[self.datum_id[0]]
+            height, width = input_img.shape[0], input_img.shape[1]
+            est_img = est_img[:height,:width,:]
+            
+            if est_img.shape[2] == 1:
+                est_img = est_img[:,:,0]
+            pred = PIL.Image.fromarray(est_img)
+             
+            pred_path = os.path.join(self.preds_dir, img_name+'.tif')       
+            pred.save(pred_path)
+            
         def getEvaluationResults(self, predictions, groundtruth):
 
             predictions  = reshape_preds(predictions)
@@ -163,7 +218,8 @@ class segmentation(algorithm):
             assert(predictions.shape[1]==num_cats)
             assert(groundtruth.min() >= 0 and groundtruth.max() < num_cats)      
             
-            resConfMeter = tnt.meter.ConfusionMeter(num_cats, normalized=False)
+            resConfMeter = utils.FastConfusionMeter(num_cats, normalized=False)
+            #resConfMeter = tnt.meter.ConfusionMeter(num_cats, normalized=False)
             resConfMeter.add(torch.from_numpy(predictions), torch.from_numpy(groundtruth))
             
             return resConfMeter

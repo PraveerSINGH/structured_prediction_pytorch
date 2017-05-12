@@ -36,7 +36,11 @@ class algorithm():
         self.vis_dir = os.path.join(directory_path,'visuals')
         if (not os.path.isdir(self.vis_dir)): 
             os.makedirs(self.vis_dir)        
-            
+
+        self.preds_dir = os.path.join(directory_path,'preds')
+        if (not os.path.isdir(self.preds_dir)): 
+            os.makedirs(self.preds_dir)         
+           
     def set_log_file_handler(self):
         self.logger = logging.getLogger(__name__)
         

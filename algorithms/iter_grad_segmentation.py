@@ -136,8 +136,8 @@ class iter_grad_segmentation(algorithm):
             elif ctype == 'BCEDetAuxLoss':
                 return BCEDetAuxLoss()
             elif ctype == 'EngValueLoss':
-		return EngValueLoss()
-	    elif ctype == 'CrossEntropyLoss2d':
+                return EngValueLoss()
+            elif ctype == 'CrossEntropyLoss2d':
                 weight = copt['weight'] if copt != None else None
                 return CrossEntropyLoss2d(weight=weight)
             else:
@@ -526,10 +526,10 @@ class iter_grad_segmentation(algorithm):
             assert(predictions_init.shape[1]==num_cats)
             assert(groundtruth.min() >= 0 and groundtruth.max() < num_cats)      
             
-            resConfMeter_tpp = tnt.meter.ConfusionMeter(num_cats, normalized=False)
+            resConfMeter_tpp = utils.FastConfusionMeter(num_cats, normalized=False)
             resConfMeter_tpp.add(torch.from_numpy(predictions_tpp), torch.from_numpy(groundtruth))
 
-            resConfMeter_init = tnt.meter.ConfusionMeter(num_cats, normalized=False)
+            resConfMeter_init = utils.FastConfusionMeter(num_cats, normalized=False)
             resConfMeter_init.add(torch.from_numpy(predictions_init), torch.from_numpy(groundtruth))   
                     
             results = {'conf t=1': resConfMeter_tpp, 'conf t=0': resConfMeter_init}
